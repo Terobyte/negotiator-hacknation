@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "Citation": {
+      "additionalProperties": false,
+      "properties": {
+        "transcript_span": {
+          "minLength": 1,
+          "title": "Transcript Span",
+          "type": "string"
+        },
+        "recording_url": {
+          "minLength": 1,
+          "title": "Recording Url",
+          "type": "string"
+        },
+        "speaker": {
+          "$ref": "#/$defs/Speaker"
+        },
+        "quote": {
+          "minLength": 1,
+          "title": "Quote",
+          "type": "string"
+        }
+      },
+      "required": [
+        "transcript_span",
+        "recording_url",
+        "speaker",
+        "quote"
+      ],
+      "title": "Citation",
+      "type": "object"
+    },
+    "RankedMover": {
+      "additionalProperties": false,
+      "properties": {
+        "mover": {
+          "minLength": 1,
+          "title": "Mover",
+          "type": "string"
+        },
+        "normalized_total": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Normalized Total"
+        },
+        "missing_items": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Items",
+          "type": "array"
+        },
+        "red_flags": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Red Flags",
+          "type": "array"
+        },
+        "citations": {
+          "items": {
+            "$ref": "#/$defs/Citation"
+          },
+          "minItems": 1,
+          "title": "Citations",
+          "type": "array"
+        }
+      },
+      "required": [
+        "mover",
+        "normalized_total",
+        "citations"
+      ],
+      "title": "RankedMover",
+      "type": "object"
+    },
+    "Speaker": {
+      "enum": [
+        "agent",
+        "counterparty"
+      ],
+      "title": "Speaker",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "recommendation_plain": {
+      "minLength": 1,
+      "title": "Recommendation Plain",
+      "type": "string"
+    },
+    "ranked": {
+      "items": {
+        "$ref": "#/$defs/RankedMover"
+      },
+      "minItems": 1,
+      "title": "Ranked",
+      "type": "array"
+    }
+  },
+  "required": [
+    "recommendation_plain",
+    "ranked"
+  ],
+  "title": "Report",
+  "type": "object"
+}

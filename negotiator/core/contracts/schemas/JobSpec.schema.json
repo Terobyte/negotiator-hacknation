@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "DateWindow": {
+      "additionalProperties": false,
+      "properties": {
+        "start": {
+          "format": "date",
+          "title": "Start",
+          "type": "string"
+        },
+        "end": {
+          "format": "date",
+          "title": "End",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "title": "DateWindow",
+      "type": "object"
+    },
+    "InventorySource": {
+      "enum": [
+        "voice",
+        "doc",
+        "both"
+      ],
+      "title": "InventorySource",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "origin": {
+      "minLength": 1,
+      "title": "Origin",
+      "type": "string"
+    },
+    "destination": {
+      "minLength": 1,
+      "title": "Destination",
+      "type": "string"
+    },
+    "distance_mi": {
+      "exclusiveMinimum": 0,
+      "title": "Distance Mi",
+      "type": "number"
+    },
+    "size": {
+      "enum": [
+        "studio",
+        "1BR",
+        "2BR",
+        "3BR",
+        "4BR+"
+      ],
+      "title": "Size",
+      "type": "string"
+    },
+    "date_window": {
+      "$ref": "#/$defs/DateWindow"
+    },
+    "floors": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Floors",
+      "type": "integer"
+    },
+    "elevator": {
+      "default": false,
+      "title": "Elevator",
+      "type": "boolean"
+    },
+    "specialty_items": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Specialty Items",
+      "type": "array"
+    },
+    "inventory_src": {
+      "$ref": "#/$defs/InventorySource"
+    },
+    "budget_ceiling": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "private": true,
+      "title": "Budget Ceiling"
+    },
+    "confirmed": {
+      "const": true,
+      "title": "Confirmed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "origin",
+    "destination",
+    "distance_mi",
+    "size",
+    "date_window",
+    "inventory_src",
+    "budget_ceiling",
+    "confirmed"
+  ],
+  "title": "JobSpec",
+  "type": "object"
+}

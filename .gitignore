@@ -5,3 +5,12 @@
 # приватно — заявки на кредиты и полная версия README остаются локально
 credits/
 README-internal.md
+
+# Python build/test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+dist/
+build/
+*.egg-info/

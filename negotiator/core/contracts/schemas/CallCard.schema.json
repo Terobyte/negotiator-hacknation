@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "NegotiationPhase": {
+      "enum": [
+        "OPENING",
+        "DISCOVERY",
+        "PRESSURE_TEST",
+        "LEVERAGE",
+        "COMMIT",
+        "WRAP"
+      ],
+      "title": "NegotiationPhase",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "minimum": 1,
+      "title": "Version",
+      "type": "integer"
+    },
+    "phase": {
+      "$ref": "#/$defs/NegotiationPhase"
+    },
+    "phase_goal": {
+      "minLength": 1,
+      "title": "Phase Goal",
+      "type": "string"
+    },
+    "next_move": {
+      "minLength": 1,
+      "title": "Next Move",
+      "type": "string"
+    },
+    "allowed_fact_ids": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Allowed Fact Ids",
+      "type": "array"
+    },
+    "tone_preset": {
+      "minLength": 1,
+      "title": "Tone Preset",
+      "type": "string"
+    },
+    "client_directives": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Client Directives",
+      "type": "array"
+    }
+  },
+  "required": [
+    "version",
+    "phase",
+    "phase_goal",
+    "next_move",
+    "tone_preset"
+  ],
+  "title": "CallCard",
+  "type": "object"
+}

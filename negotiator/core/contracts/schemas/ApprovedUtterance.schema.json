@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "card_version": {
+      "minimum": 1,
+      "title": "Card Version",
+      "type": "integer"
+    },
+    "gate_verdict_ref": {
+      "minLength": 1,
+      "title": "Gate Verdict Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text",
+    "card_version",
+    "gate_verdict_ref"
+  ],
+  "title": "ApprovedUtterance",
+  "type": "object"
+}

@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "LedgerFactKind": {
+      "enum": [
+        "quote",
+        "benchmark",
+        "jobspec",
+        "verification",
+        "directive"
+      ],
+      "title": "LedgerFactKind",
+      "type": "string"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/SourceType"
+        },
+        "ref": {
+          "minLength": 1,
+          "title": "Ref",
+          "type": "string"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Span"
+        }
+      },
+      "required": [
+        "type",
+        "ref"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "SourceType": {
+      "enum": [
+        "transcript",
+        "config",
+        "api"
+      ],
+      "title": "SourceType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "minLength": 1,
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/LedgerFactKind"
+    },
+    "value": {
+      "title": "Value"
+    },
+    "source": {
+      "$ref": "#/$defs/Source"
+    },
+    "call_id": {
+      "minLength": 1,
+      "title": "Call Id",
+      "type": "string"
+    },
+    "ts": {
+      "format": "date-time",
+      "title": "Ts",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "value",
+    "source",
+    "call_id",
+    "ts"
+  ],
+  "title": "LedgerFact",
+  "type": "object"
+}

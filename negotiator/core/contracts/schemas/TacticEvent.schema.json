@@ -1,0 +1,39 @@
+{
+  "$defs": {
+    "TacticType": {
+      "enum": [
+        "pressure",
+        "vague",
+        "stonewall",
+        "deadline",
+        "lowball"
+      ],
+      "title": "TacticType",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "$ref": "#/$defs/TacticType"
+    },
+    "utterance_ref": {
+      "minLength": 1,
+      "title": "Utterance Ref",
+      "type": "string"
+    },
+    "confidence": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Confidence",
+      "type": "number"
+    }
+  },
+  "required": [
+    "type",
+    "utterance_ref",
+    "confidence"
+  ],
+  "title": "TacticEvent",
+  "type": "object"
+}

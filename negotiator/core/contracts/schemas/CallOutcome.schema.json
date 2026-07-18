@@ -1,0 +1,233 @@
+{
+  "$defs": {
+    "CallStatus": {
+      "enum": [
+        "quoted",
+        "refused",
+        "callback",
+        "hangup"
+      ],
+      "title": "CallStatus",
+      "type": "string"
+    },
+    "Deposit": {
+      "additionalProperties": false,
+      "properties": {
+        "amount": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Amount"
+        },
+        "pct_of_total": {
+          "maximum": 100,
+          "minimum": 0,
+          "title": "Pct Of Total",
+          "type": "number"
+        },
+        "refundable": {
+          "title": "Refundable",
+          "type": "boolean"
+        },
+        "payment_methods": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Payment Methods",
+          "type": "array"
+        }
+      },
+      "required": [
+        "amount",
+        "pct_of_total",
+        "refundable"
+      ],
+      "title": "Deposit",
+      "type": "object"
+    },
+    "EstimateType": {
+      "enum": [
+        "binding",
+        "non_binding",
+        "BNTE"
+      ],
+      "title": "EstimateType",
+      "type": "string"
+    },
+    "LineItem": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "maximum": 14,
+          "minimum": 1,
+          "title": "Code",
+          "type": "integer"
+        },
+        "amount": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Amount"
+        },
+        "disclosed": {
+          "title": "Disclosed",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "amount",
+        "disclosed"
+      ],
+      "title": "LineItem",
+      "type": "object"
+    },
+    "Quote": {
+      "additionalProperties": false,
+      "properties": {
+        "mover_id": {
+          "minLength": 1,
+          "title": "Mover Id",
+          "type": "string"
+        },
+        "total": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Total"
+        },
+        "line_items": {
+          "items": {
+            "$ref": "#/$defs/LineItem"
+          },
+          "title": "Line Items",
+          "type": "array"
+        },
+        "estimate_type": {
+          "$ref": "#/$defs/EstimateType"
+        },
+        "deposit": {
+          "$ref": "#/$defs/Deposit"
+        },
+        "carrier_or_broker": {
+          "enum": [
+            "carrier",
+            "broker"
+          ],
+          "title": "Carrier Or Broker",
+          "type": "string"
+        },
+        "usdot": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Usdot"
+        },
+        "mc": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mc"
+        },
+        "transcript_ref": {
+          "minLength": 1,
+          "title": "Transcript Ref",
+          "type": "string"
+        }
+      },
+      "required": [
+        "mover_id",
+        "total",
+        "line_items",
+        "estimate_type",
+        "deposit",
+        "carrier_or_broker",
+        "transcript_ref"
+      ],
+      "title": "Quote",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "call_id": {
+      "minLength": 1,
+      "title": "Call Id",
+      "type": "string"
+    },
+    "mover_id": {
+      "minLength": 1,
+      "title": "Mover Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/CallStatus"
+    },
+    "quote": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Quote"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "red_flags": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Red Flags",
+      "type": "array"
+    },
+    "transcript_ref": {
+      "minLength": 1,
+      "title": "Transcript Ref",
+      "type": "string"
+    }
+  },
+  "required": [
+    "call_id",
+    "mover_id",
+    "status",
+    "transcript_ref"
+  ],
+  "title": "CallOutcome",
+  "type": "object"
+}
