@@ -1,0 +1,8 @@
+.env
+.env.local
+.DS_Store
+
+# приватно во время хакатона — вся стратегия и заявки остаются локально
+docs/
+credits/
+README-internal.md
