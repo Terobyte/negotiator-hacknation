@@ -5,7 +5,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator, model_validator
 
 
 class Contract(BaseModel):
@@ -76,10 +76,29 @@ class CallCard(Contract):
         return value
 
 
+_GATE_CAPABILITY = object()
+
+
 class ApprovedUtterance(Contract):
+    """A gate-issued capability, not a generally constructible data container."""
+
     text: str = Field(min_length=1)
     card_version: int = Field(ge=1)
     gate_verdict_ref: str = Field(min_length=1)
+    _gate_issued: bool = PrivateAttr(default=False)
+
+    def __init__(self, **data: Any) -> None:
+        capability = data.pop("_gate_capability", None)
+        if capability is not _GATE_CAPABILITY:
+            raise TypeError("ApprovedUtterance can only be issued by the honesty gate")
+        super().__init__(**data)
+        object.__setattr__(self, "_gate_issued", True)
+
+    @property
+    def gate_issued(self) -> bool:
+        """Runtime proof for the TTS boundary in the next build phase."""
+
+        return self._gate_issued
 
 
 class SourceType(StrEnum):

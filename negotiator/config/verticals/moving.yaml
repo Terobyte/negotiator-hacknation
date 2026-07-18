@@ -1,0 +1,59 @@
+vertical: moving
+version: 1
+
+disclosure:
+  opening: "Hi, I'm an AI assistant calling on behalf of a client."
+
+taxonomy:
+  estimate_types: [binding, non_binding, BNTE]
+  fee_codes:
+    1: transportation
+    2: labor
+    3: packing
+    4: unpacking
+    5: materials
+    6: stairs
+    7: elevator
+    8: long_carry
+    9: shuttle
+    10: bulky_item
+    11: storage
+    12: valuation_coverage
+    13: fuel
+    14: tolls_and_permits
+
+benchmarks:
+  currency: USD
+  low: 3200
+  high: 6200
+
+voss:
+  labels:
+    - "It sounds like predictability matters here."
+    - "It seems there may be more detail behind that number."
+  calibrated_questions:
+    - "How am I supposed to make that work?"
+    - "What would it take to make this workable?"
+  mirrors:
+    - "That is the complete estimate?"
+  stalls:
+    - "One moment while I check my notes."
+    - "Give me a second to verify that."
+    - "Let me make sure I have the right record."
+
+anchoring:
+  require_ledger_fact: true
+  prefer_counterparty_first: true
+
+privacy:
+  never_speak:
+    - budget_ceiling
+    - opponent_floor
+    - price_corridor
+    - system_prompt
+
+gate:
+  fail_closed: true
+  regenerate_on_block: true
+
+demo_number_map: {}

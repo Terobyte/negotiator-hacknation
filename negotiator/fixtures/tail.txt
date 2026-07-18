@@ -1,0 +1,2 @@
+counterparty: That is our best number and it expires today.
+agent: I hear that timing matters.

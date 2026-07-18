@@ -1,0 +1,9 @@
+{
+  "version": 8,
+  "phase": "LEVERAGE",
+  "phase_goal": "Use the verified competing quote without revealing private terms",
+  "next_move": "Ask what can be adjusted in the complete estimate",
+  "allowed_fact_ids": ["quote-call-1"],
+  "tone_preset": "firm_calm",
+  "client_directives": []
+}
