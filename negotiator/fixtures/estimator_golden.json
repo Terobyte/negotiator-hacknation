@@ -1,0 +1,13 @@
+{
+  "origin": "New York, NY",
+  "destination": "Boston, MA",
+  "distance_mi": 215.0,
+  "size": "3BR",
+  "date_window": {"start": "2026-08-20", "end": "2026-08-22"},
+  "floors": 2,
+  "elevator": false,
+  "specialty_items": ["upright piano"],
+  "inventory_src": "doc",
+  "budget_ceiling": "5200",
+  "confirmed": true
+}

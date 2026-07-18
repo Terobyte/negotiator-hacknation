@@ -1,0 +1,11 @@
+# Frozen output of the optional PDF/OCR extractor. No values are inferred.
+origin: New York, NY
+destination: Boston, MA
+distance_mi: 215
+size: 3BR
+date_window: {"start":"2026-08-20","end":"2026-08-22"}
+floors: 2
+elevator: false
+specialty_items: ["upright piano"]
+budget_ceiling: "5200"
+confirmed: true

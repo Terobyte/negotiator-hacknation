@@ -1,0 +1,53 @@
+{
+  "name": "moving_intake",
+  "conversation_config": {
+    "tts": {
+      "model_id": "eleven_flash_v2_5"
+    },
+    "turn": {
+      "turn_timeout": 12,
+      "silence_end_call_timeout": 30
+    },
+    "agent": {
+      "prompt": {
+        "prompt_file": "prompt.md"
+      }
+    }
+  },
+  "conversation_initiation_client_data": {
+    "dynamic_variables": {
+      "ocr_origin": "",
+      "ocr_destination": "",
+      "ocr_distance_mi": "",
+      "ocr_size": "",
+      "ocr_date_window": "",
+      "ocr_specialty_items": "",
+      "ocr_budget_ceiling": "",
+      "verified_ocr_fields": []
+    }
+  },
+  "structured_procedure": {
+    "status": "alpha",
+    "steps": [
+      "Ask for every missing JobSpec field and confirm each OCR pre-fill hypothesis",
+      "Say a complete field-by-field recap, including the private budget ceiling",
+      "Ask one unambiguous yes/no confirmation question",
+      "Only after yes, call submit_job_spec exactly once"
+    ],
+    "prompt_fallback": "prompt.md#confirmation"
+  },
+  "tools": [
+    {
+      "name": "submit_job_spec",
+      "type": "webhook",
+      "method": "POST",
+      "path": "/webhooks/elevenlabs/submit_job_spec",
+      "call_condition": "Only after the customer says yes to the complete read-back",
+      "idempotency_key": "conversation_id",
+      "field_sources": {
+        "verified_ocr_fields": "Dynamic Variable",
+        "remaining_job_spec_fields": "LLM Prompt"
+      }
+    }
+  ]
+}

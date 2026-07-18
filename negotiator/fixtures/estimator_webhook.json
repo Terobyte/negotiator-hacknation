@@ -1,0 +1,22 @@
+{
+  "conversation_id": "conv-golden-001",
+  "read_back_confirmed": true,
+  "job_spec": {
+    "origin": "LLM tried to overwrite this",
+    "destination": "Boston, MA",
+    "distance_mi": 215,
+    "size": "3BR",
+    "date_window": {"start": "2026-08-20", "end": "2026-08-22"},
+    "floors": 2,
+    "elevator": false,
+    "specialty_items": ["upright piano"],
+    "inventory_src": "voice",
+    "budget_ceiling": "5200",
+    "confirmed": true
+  },
+  "dynamic_variables": {
+    "ocr_origin": "New York, NY",
+    "verified_ocr_fields": ["origin"]
+  },
+  "verified_ocr_fields": ["origin"]
+}
