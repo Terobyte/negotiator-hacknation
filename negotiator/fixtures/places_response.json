@@ -1,0 +1,7 @@
+{
+  "places": [
+    {"displayName": {"text": "Atlantic Moving Co"}, "nationalPhoneNumber": "+1 212-555-0101", "formattedAddress": "10 Harbor St, New York, NY"},
+    {"displayName": {"text": "Hudson Van Lines"}, "nationalPhoneNumber": "+1 212-555-0102", "formattedAddress": "20 River Rd, New York, NY"},
+    {"displayName": {"text": "Empire Relocation"}, "nationalPhoneNumber": "+1 212-555-0103", "formattedAddress": "30 State St, New York, NY"}
+  ]
+}

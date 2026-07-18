@@ -1,0 +1,40 @@
+{
+  "outcomes": [
+    {
+      "outcome": {
+        "call_id": "call-1-lowball_broker", "mover_id": "Atlantic Moving Co", "status": "quoted",
+        "quote": {
+          "mover_id": "Atlantic Moving Co", "total": "2079", "line_items": [{"code": 1, "amount": "2079", "disclosed": true}],
+          "estimate_type": "non_binding", "deposit": {"amount": "600", "pct_of_total": 28.86, "refundable": false, "payment_methods": ["cash", "wire"]},
+          "carrier_or_broker": "broker", "usdot": null, "mc": null, "transcript_ref": "tx-lowball:42-51"
+        }, "red_flags": [], "transcript_ref": "tx-lowball"
+      },
+      "sight_unseen": true, "address_provided": false, "mentions_110_percent": false,
+      "citations": [{"transcript_span": "tx-lowball:42-51", "recording_url": "https://audio.example/lowball.mp3#t=42", "speaker": "counterparty", "quote": "The deposit is cash or wire only."}]
+    },
+    {
+      "outcome": {
+        "call_id": "call-2-rushed_dispatcher", "mover_id": "Hudson Van Lines", "status": "quoted",
+        "quote": {
+          "mover_id": "Hudson Van Lines", "total": "4100", "line_items": [{"code": 1, "amount": "3500", "disclosed": true}, {"code": 13, "amount": "600", "disclosed": true}],
+          "estimate_type": "non_binding", "deposit": {"amount": "500", "pct_of_total": 12.2, "refundable": true, "payment_methods": ["credit card"]},
+          "carrier_or_broker": "carrier", "usdot": "222222", "mc": null, "transcript_ref": "tx-rushed:30-43"
+        }, "red_flags": [], "transcript_ref": "tx-rushed"
+      },
+      "mentions_110_percent": true,
+      "citations": [{"transcript_span": "tx-rushed:30-43", "recording_url": "https://audio.example/rushed.mp3#t=30.5", "speaker": "counterparty", "quote": "The total including fuel is forty-one hundred."}]
+    },
+    {
+      "outcome": {
+        "call_id": "call-3-pressure_closer", "mover_id": "Empire Relocation", "status": "quoted",
+        "quote": {
+          "mover_id": "Empire Relocation", "total": "3900", "line_items": [{"code": 1, "amount": "3300", "disclosed": true}, {"code": 3, "amount": "300", "disclosed": true}, {"code": 13, "amount": "300", "disclosed": true}],
+          "estimate_type": "binding", "deposit": {"amount": "400", "pct_of_total": 10.26, "refundable": true, "payment_methods": ["credit card"]},
+          "carrier_or_broker": "carrier", "usdot": "333333", "mc": null, "transcript_ref": "tx-closer:65-74"
+        }, "red_flags": [], "transcript_ref": "tx-closer"
+      },
+      "verification": {"allowToOperate": "Y", "outOfService": "N", "complaints": 0},
+      "citations": [{"transcript_span": "tx-closer:65-74", "recording_url": "https://audio.example/closer.mp3#t=65", "speaker": "counterparty", "quote": "I can meet thirty-nine hundred based on that competing quote."}]
+    }
+  ]
+}

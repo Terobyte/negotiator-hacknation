@@ -1,0 +1,12 @@
+{
+  "USDOT": {
+    "carrier": {"content": {"carrier": {"legalName": "Frozen Demo Carrier", "dotNumber": 123456, "allowToOperate": "Y"}}},
+    "authority": {"content": {"commonAuthorityStatus": "ACTIVE"}},
+    "oos": {"content": {"outOfService": "N"}}
+  },
+  "MC": {
+    "carrier": {"content": {"carrier": {"legalName": "Frozen Demo Broker", "dotNumber": 123456, "docketNumber": "654321", "allowToOperate": "Y"}}},
+    "authority": {"content": {"brokerAuthorityStatus": "ACTIVE"}},
+    "oos": {"content": {"outOfService": "N"}}
+  }
+}
