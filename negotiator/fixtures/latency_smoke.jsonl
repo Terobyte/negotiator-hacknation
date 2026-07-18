@@ -1,0 +1,6 @@
+{"seq":1,"ts":"2026-07-18T12:00:00Z","call_id":"sim-1","module":"arbiter","kind":"speech_end","payload":{"turn_id":"1"},"refs":[]}
+{"seq":2,"ts":"2026-07-18T12:00:00.090Z","call_id":"sim-1","module":"stt","kind":"stt_final","payload":{"turn_id":"1"},"refs":[]}
+{"seq":3,"ts":"2026-07-18T12:00:00.320Z","call_id":"sim-1","module":"talker","kind":"llm_first_token","payload":{"turn_id":"1"},"refs":[]}
+{"seq":4,"ts":"2026-07-18T12:00:00.450Z","call_id":"sim-1","module":"tts","kind":"tts_first_audio","payload":{"turn_id":"1"},"refs":[]}
+{"seq":5,"ts":"2026-07-18T12:00:00.500Z","call_id":"sim-1","module":"transport","kind":"audio_out","payload":{"turn_id":"1"},"refs":[]}
+{"seq":6,"ts":"2026-07-18T12:01:00Z","call_id":"sim-1","module":"metrics","kind":"latency_span","payload":{"segment":"mouth_to_ear","duration_ms":1100},"refs":[]}
