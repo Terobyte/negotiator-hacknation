@@ -1,8 +1,8 @@
-vertical: moving
+vertical: plumbing
 version: 1
 contract_compatibility:
-  profile: moving-v1
-  status: compatible
+  profile: plumbing-v1
+  status: schema_skeleton_only
 
 runtime:
   live_enabled: true
@@ -17,37 +17,37 @@ disclosure:
   opening: "Hi, I'm an AI assistant calling on behalf of a client."
 
 taxonomy:
-  estimate_types: [binding, non_binding, BNTE]
+  estimate_types: [fixed, time_and_materials, diagnostic]
   fee_codes:
-    1: transportation
+    1: service_call
     2: labor
-    3: packing
-    4: unpacking
-    5: materials
-    6: stairs
-    7: elevator
-    8: long_carry
-    9: shuttle
-    10: bulky_item
-    11: storage
-    12: valuation_coverage
-    13: fuel
-    14: tolls_and_permits
+    3: parts
+    4: permit
+    5: emergency
+    6: travel
+    7: disposal
+    8: excavation
+    9: restoration
+    10: equipment
+    11: after_hours
+    12: warranty
+    13: tax
+    14: inspection
 
 benchmarks:
   currency: USD
-  low: 3200
-  high: 6200
+  low: 450
+  high: 1800
 
 voss:
   labels:
-    - "It sounds like predictability matters here."
+    - "It sounds like certainty on the final bill matters here."
     - "It seems there may be more detail behind that number."
   calibrated_questions:
     - "How am I supposed to make that work?"
     - "What would it take to make this workable?"
   mirrors:
-    - "That is the complete estimate?"
+    - "That includes labor and parts?"
   stalls:
     - "One moment while I check my notes."
     - "Give me a second to verify that."
