@@ -13,7 +13,7 @@ R0 — параллельно билду. Метод: 6 параллельных
 
 | # | Решение |
 |---|---|
-| **R0.3 / D3** | ✅ Дефолт: **свой pipecat-стек** + ElevenLabs TTS. Agents Platform Guardrails — LLM-классификатор, **не** детерминированный fail-closed гейт. Agents Platform — только под counter-агентов. |
+| **R0.3 / D3** | ✅ Переговоры — **свой pipecat-стек** + ElevenLabs TTS (Guardrails EL = LLM-классификатор, **не** fail-closed гейт). **Интейк-интервью → EL Agents Platform** (требование брифа, §10 п.15). EL Agents = интейк + counter-агенты. |
 | **R1.1** | TTS TTFB по WS: ~100–150мс (US/EU) оптимистично, 250–500мс реалистично. Прерывание TTS — **сами на клиенте** (нет нативного mid-flight cancel у standalone TTS WS). |
 | **R1.2** | v3 audio tags в realtime **нет**. Prosody Director = per-request `voice_settings` (stability/style/speed) у Flash v2.5. В hot path `style=0`, `speaker_boost=off` (оба добавляют латентность). |
 | **R1.3** | STT: оставляем **Deepgram nova phonecall**, ElevenLabs — только TTS. ⚠️ подтвердить в брифе, что трек не требует их STT. |
@@ -48,7 +48,7 @@ R0 — параллельно билду. Метод: 6 параллельных
 - **Решение:** не web-исследуемо (бриф/Discord). Публичной страницы правил Hack-Nation 6 поиск не дал.
 
 ### [R0.3] Agents Platform: кастомный tool-gate / контроль barge-in / сырой транскрипт? → D3
-- **Решение:** ✅ **Подтвердить дефолт — свой pipecat-стек + ElevenLabs TTS.** Agents Platform — только под counter-агентов.
+- **Решение (уточнено 2026-07-18):** **переговорный** контур — свой pipecat-стек + ElevenLabs TTS (причины a/b/c ниже валидны для звонков оппонентам). НО **интейк-интервью → EL Agents Platform** (spec §10 п.15): бриф модуль 01 это прямо требует, а причины «свой каскад» к кооперативному интейку не применяются (детерминированный fail-closed гейт и тонкий контроль barge-in там не нужны — собеседник это клиент, не оппонент). Итог: EL Agents = **интейк + counter-агенты**; переговоры — свой каскад.
 - **Evidence:**
   - (a) Есть «Guardrails 2.0» (Focus/Manipulation/Content/**Custom**), но Custom Guardrail — это **LLM-судья** (`gemini-2.5-flash-lite`), проверяющий ответ промптом (≤10k симв.), а не синхронный хук в нашу детерминированную tool-логику против структурного состояния. Наш honesty gate должен детерминированно проверять «есть ли реально 3 котировки в ledger» до озвучки — это не то же самое.
   - (b) Barge-in нативный, но **не настраиваемый**: нет VAD-порогов/no-interrupt окон; `Interruption` event = `{event_id}` (уведомление, не контроль). Подтверждено сторонним разбором (Deepgram).

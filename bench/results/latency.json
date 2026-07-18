@@ -1,0 +1,62 @@
+[
+  {
+    "model": "google/gemini-3.5-flash",
+    "role": "talker",
+    "path": "openrouter",
+    "ok": true,
+    "n": 5,
+    "streamed": true,
+    "ttft_p50": 1.8995239170035347,
+    "ttft_p95": 2.049160583061166,
+    "ttft_min": 1.8691640000324696,
+    "total_p50": 1.994764000060968
+  },
+  {
+    "model": "google/gemini-2.5-flash-lite",
+    "role": "talker",
+    "path": "openrouter",
+    "ok": true,
+    "n": 5,
+    "streamed": true,
+    "ttft_p50": 0.7898641660576686,
+    "ttft_p95": 1.0492917919764295,
+    "ttft_min": 0.5102843329077587,
+    "total_p50": 0.9621534999459982
+  },
+  {
+    "model": "gpt-4o-mini",
+    "role": "talker",
+    "path": "openai-direct",
+    "ok": true,
+    "n": 5,
+    "streamed": true,
+    "ttft_p50": 0.6681347918929532,
+    "ttft_p95": 1.4377496249508113,
+    "ttft_min": 0.41415858396794647,
+    "total_p50": 1.1002331669442356
+  },
+  {
+    "model": "gpt-4.1-mini",
+    "role": "talker",
+    "path": "openai-direct",
+    "ok": true,
+    "n": 5,
+    "streamed": true,
+    "ttft_p50": 0.5168495420366526,
+    "ttft_p95": 1.5848801659885794,
+    "ttft_min": 0.4417473750654608,
+    "total_p50": 1.1422717079985887
+  },
+  {
+    "model": "gpt-5.4-nano",
+    "role": "talker",
+    "path": "openai-direct",
+    "ok": true,
+    "n": 5,
+    "streamed": true,
+    "ttft_p50": 0.7883197910850868,
+    "ttft_p95": 0.9399568330263719,
+    "ttft_min": 0.7555994580034167,
+    "total_p50": 1.2392509579658508
+  }
+]
