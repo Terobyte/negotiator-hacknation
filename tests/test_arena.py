@@ -10,6 +10,7 @@ import pytest
 from negotiator.call.talker import OfflineTalkerAdapter
 from negotiator.core.contracts import CallCard, NegotiationPhase, SourceType
 from negotiator.tools.arena import (
+    ADAPTIVE_GENOME,
     CLEAN_FLEX_MAX_PCT,
     DIRTY_FLEX_MIN_PCT,
     DISHONESTY_SCORE,
@@ -442,3 +443,59 @@ def test_render_defender_live_engaged_prints_no_fallback_warning(tmp_path, capsy
 def test_run_arena_rejects_unknown_defender():
     with pytest.raises(ValueError):
         run_arena(mode="cash", loops=1, defender="voice")
+
+
+# --------------------------------------------------------------------------- #
+# Adaptive stance -- --genome adaptive (loop 5, "кора"). Held-out seed 101,
+# matching the acceptance checks run from the CLI.
+# --------------------------------------------------------------------------- #
+def test_adaptive_vs_turncoat_flips_to_bad_after_leverage_dirt_with_latency(tmp_path):
+    run = run_arena(mode="principled", loops=6, seed=101, genome_path=ADAPTIVE_GENOME,
+                    attacker_profile="turncoat", out_root=tmp_path, run_id="turncoat")
+    assert run.adaptive is True
+    bad_cards = [card for card in run.scorecards if card["stance_trace"][-1] == "bad"]
+    assert bad_cards, "at least one turncoat match must flip to BAD by seed 101/loops 6"
+    for card in bad_cards:
+        trace = card["stance_trace"]
+        bad_index = trace.index("bad")
+        # every phase before the flip stayed NEUTRAL or GOOD, never BAD before BAD -- and the
+        # flip itself is recorded with a latency counted from the first suspicion-bearing turn.
+        assert all(stance in ("neutral", "good") for stance in trace[:bad_index])
+        assert card["switch_latency_turns"] is not None and card["switch_latency_turns"] >= 0
+        assert card["conceded_during_latency_usd"] >= 0
+        assert any(switch["to_stance"] == "bad" for switch in card["stance_switches"])
+
+
+def test_adaptive_vs_clean_never_flips_bad(tmp_path):
+    run = run_arena(mode="principled", loops=6, seed=101, genome_path=ADAPTIVE_GENOME,
+                    attacker_profile="clean", out_root=tmp_path, run_id="clean")
+    assert run.adaptive is True
+    for card in run.scorecards:
+        assert "bad" not in card["stance_trace"]
+        assert card["stance_trace"][-1] in ("neutral", "good")  # GOOD earned or NEUTRAL held
+
+
+def test_adaptive_scenario_stream_is_byte_identical_to_static_genome(tmp_path):
+    plain = draw_scenarios(seed=9, loops=4)
+    static_run = run_arena(mode="cash", loops=4, seed=9, out_root=tmp_path / "static", run_id="static")
+    adaptive_run = run_arena(mode="cash", loops=4, seed=9, genome_path=ADAPTIVE_GENOME,
+                             out_root=tmp_path / "adaptive", run_id="adaptive")
+    assert static_run.scenarios == plain
+    assert adaptive_run.scenarios == plain
+    assert [c["scenario"] for c in adaptive_run.scorecards] == [c["scenario"] for c in static_run.scorecards]
+
+
+def test_adaptive_static_genome_scorecards_have_no_stance_keys(tmp_path):
+    run = run_arena(mode="cash", loops=2, seed=3, out_root=tmp_path, run_id="static")
+    for card in run.scorecards:
+        assert "stance_trace" not in card
+        assert "stance_switches" not in card
+        assert "switch_latency_turns" not in card
+
+
+def test_cli_smoke_genome_adaptive(tmp_path, capsys):
+    assert main(["--mode", "principled", "--loops", "3", "--seed", "101", "--genome", "adaptive",
+                "--attacker-profile", "turncoat", "--out-root", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "stance trace (--genome adaptive):" in out
+    assert "aggregate: defender" in out

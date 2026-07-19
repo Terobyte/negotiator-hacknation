@@ -68,4 +68,20 @@ gate:
   fail_closed: true
   regenerate_on_block: true
 
+# Additive: the brain-side stance machine (negotiator/brain/stance.py). A vertical without
+# this block still works -- stance.py carries its own in-code defaults for every key here.
+stance:
+  weights:
+    injection_detected: 40
+    red_flag_fee: 35
+    fee_denial_caught: 30
+    price_jump: 20
+    pressure_deadline: 15
+    willing_itemization: 15
+    price_near_benchmark: 10
+    concession_made: 10
+  theta_bad: 60
+  theta_good: 25
+  min_dwell_turns: 2
+
 demo_number_map: {}

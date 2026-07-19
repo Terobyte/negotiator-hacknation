@@ -24,6 +24,12 @@ Map the user's request to the CLI:
   genome's `talker_prompt` gene wakes: each defender draft comes from a real gpt-4.1-mini call
   instead of the offline template, still gated as always). Only wire this in when the user
   explicitly asks for a live defender; default stays `--defender offline`.
+- **"кора" / "адаптив" / "динамический режим" / "adaptive"** → `--genome adaptive` (the
+  brain-side stance machine `negotiator/brain/stance.py` starts NEUTRAL, earns GOOD on trust,
+  drops to BAD on accumulated suspicion — BAD is absorbing, max 2 switches per call — and
+  per-turn drives the defender with the matching champion genome goodcop/neutral/badcop).
+  Render gains a `stance trace` section with switch latency; replay the machine alone with
+  `python -m negotiator.brain.stance --replay negotiator/fixtures/stance_smoke.jsonl`.
 
 Run it (offline by default — zero env keys needed, fully deterministic):
 

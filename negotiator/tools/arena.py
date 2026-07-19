@@ -32,6 +32,7 @@ from typing import Any, Mapping
 import yaml
 
 from negotiator.brain.fsm import NegotiationFSM
+from negotiator.brain.stance import StanceConfig, StanceMachine, make_event, stance_config_from_vertical
 from negotiator.brain.strategist import FEE_NAMES
 from negotiator.call.firewall import sanitize_transcript
 from negotiator.call.gate import HonestyGate
@@ -47,6 +48,7 @@ from negotiator.core.contracts import (
     Source,
     SourceType,
 )
+from negotiator.core.contracts.models import StanceEvent, StanceEventKind
 from negotiator.core.journal import Journal
 from negotiator.tools.duet import _load_dotenv, _load_persona
 
@@ -54,6 +56,19 @@ ROOT = Path(__file__).resolve().parents[2]
 VERTICAL_PATH = ROOT / "negotiator" / "config" / "verticals" / "moving.yaml"
 SEED_GENOME_PATH = ROOT / "negotiator" / "config" / "arena" / "genome_gen000.yaml"
 DEFAULT_OUT_ROOT = ROOT / "runs" / "arena"
+# The "кора" (adaptive stance) sentinel for --genome: loads the three committed champions
+# instead of one static genome. STANCES order also doubles as the stance-trace's vocabulary.
+ADAPTIVE_GENOME = "adaptive"
+STANCES = ("neutral", "good", "bad")
+CHAMPION_GENOME_PATHS: dict[str, Path] = {
+    "neutral": ROOT / "negotiator" / "config" / "arena" / "genome_neutral.yaml",
+    "good": ROOT / "negotiator" / "config" / "arena" / "genome_goodcop.yaml",
+    "bad": ROOT / "negotiator" / "config" / "arena" / "genome_badcop.yaml",
+}
+# Urgency/deadline phrasing an attacker might use to manufacture pressure -- deliberately
+# specific substrings so a clean attacker's canned lines never accidentally match.
+_DEADLINE_KEYWORDS = ("end of day", "act now", "expires", "deadline", "today only",
+                     "decide fast", "holds only until")
 PERSONAS = ("lowball_broker", "pressure_closer", "rushed_dispatcher")
 FEE_POOL = (4, 6, 8, 11, 13)  # fallback hidden-fee pool for personas that hide nothing by default
 CITE_PHASES = ("PRESSURE_TEST", "LEVERAGE")
@@ -395,6 +410,13 @@ class GenomeTalkerAdapter:
         self._client_dead = False
         self.engaged = 0  # count of turns that genuinely came from the LLM
 
+    def set_talker_prompt(self, talker_prompt: str) -> None:
+        """Adaptive mode swaps the active champion mid-call: mutate the live prompt in place
+        rather than build a new adapter per turn, which would zero the ``engaged`` counter and
+        drop the cached client."""
+
+        self._talker_prompt = talker_prompt
+
     def generate(self, *, card: CallCard, transcript_tail: str) -> str:
         clean_tail = sanitize_transcript(transcript_tail[-1200:]).sanitized
         client = self._ensure_client()
@@ -462,6 +484,12 @@ class MatchResult:
     gate_blocks: int
     leaks: int
     spoken_unapproved: int
+    # Adaptive-only (--genome adaptive): empty/None for every static-genome match, so judge()
+    # never adds these keys to a non-adaptive scorecard -- existing scorecard shape is untouched.
+    stance_trace: tuple[str, ...] = ()
+    stance_switches: tuple[dict[str, Any], ...] = ()
+    switch_latency_turns: int | None = None
+    conceded_during_latency_usd: int = 0
 
 
 def _defender_plan(scenario: Scenario, genome: Mapping[str, Any], merged: Mapping[str, Any], *,
@@ -589,6 +617,180 @@ def run_match(*, scenario: Scenario, genome: Mapping[str, Any], merged: Mapping[
 
 
 # --------------------------------------------------------------------------- #
+# Adaptive stance ("кора") — --genome adaptive. _defender_turn is the per-phase
+# twin of _defender_plan: it builds ONE turn from whichever champion genome is
+# ACTIVE right now, so a mid-call stance switch changes the very next turn
+# instead of a plan fixed at match start. _defender_plan itself is untouched.
+# --------------------------------------------------------------------------- #
+def _defender_turn(phase: NegotiationPhase, scenario: Scenario, genome: Mapping[str, Any],
+                   merged: Mapping[str, Any], *, anchor: int, red_flag_known: bool) -> dict[str, Any]:
+    tactics = genome["tactics"]
+    labels = merged["voss"]["labels"]
+    phrase = labels[scenario.match % len(labels)]
+    cite_move = (f"I already have a written quote of ${scenario.competitor_quote:,} "
+                 "from another carrier for the same job.")
+    if tactics["press_hidden_fees"]:
+        probe_role, probe_move = "press", "Are there any fees not in that number — stairs, long carry, fuel, or a deposit?"
+    else:
+        probe_role, probe_move = "probe", "That's the complete number, nothing else behind it?"
+    cite_at = tactics["cite_competitor_at_phase"]
+    if phase is NegotiationPhase.OPENING:
+        return {"phase": phase, "goal": "AI-disclosure + rapport", "role": "opening",
+               "move": "Disclose that I am an AI assistant, then build rapport.", "tone": "warm", "facts": ()}
+    if phase is NegotiationPhase.DISCOVERY:
+        return {"phase": phase, "goal": "surface the full breakdown", "role": "discover",
+               "move": f"{phrase} Could you walk me through everything included in that number?",
+               "tone": "calm", "facts": ()}
+    if phase in (NegotiationPhase.PRESSURE_TEST, NegotiationPhase.LEVERAGE):
+        leverage = phase is NegotiationPhase.LEVERAGE
+        if phase.value == cite_at:
+            return {"phase": phase, "goal": "apply real leverage" if leverage else "probe the number",
+                   "role": "cite", "move": cite_move, "tone": "firm" if leverage else "calm",
+                   "facts": ("competitor_quote",)}
+        return {"phase": phase, "goal": "apply real leverage" if leverage else "probe the number",
+               "role": probe_role, "move": probe_move, "tone": "firm" if leverage else "calm", "facts": ()}
+    if phase is NegotiationPhase.COMMIT:
+        if red_flag_known:
+            return {"phase": phase, "goal": "close or walk", "role": "walkaway",
+                   "move": "That non-refundable deposit is a dealbreaker for my client, so we will pass for now.",
+                   "tone": "firm", "facts": ()}
+        return {"phase": phase, "goal": "close or walk", "role": "anchor",
+               "move": f"If we can land the complete total at ${anchor:,} today, I can confirm right now.",
+               "tone": "firm", "facts": ("competitor_quote", "anchor_target")}
+    return {"phase": phase, "goal": "confirm and thank", "role": "wrap",
+           "move": "Thank you — I'll send the confirmation.", "tone": "warm", "facts": ()}
+
+
+def _detect_stance_events(*, phase: NegotiationPhase, role: str | None, line: str, scenario: Scenario,
+                          prev_total: int, current_total: int, red_flag_known: bool) -> tuple[StanceEvent, ...]:
+    """Detection lives here, never inside StanceMachine: every signal below is something arena
+    already computes for scoring/rendering elsewhere — the attacker's own line (firewall scan,
+    fee-name reveal, urgency wording), its running total, and scenario truth already used by
+    ``count_fees_surfaced``/``red_flag_known``. The machine only scores what it is handed."""
+    events: list[StanceEvent] = []
+    sanitized = sanitize_transcript(line)
+    if sanitized.suspicious:
+        events.append(make_event(StanceEventKind.INJECTION_DETECTED,
+                                 f"firewall flagged the counterpart's line: {', '.join(sanitized.reasons)}"))
+    lowered = line.lower()
+    if any(keyword in lowered for keyword in _DEADLINE_KEYWORDS):
+        events.append(make_event(StanceEventKind.PRESSURE_DEADLINE, f"urgency language: {line[:80]!r}"))
+    if "fabricated" in lowered:
+        events.append(make_event(StanceEventKind.PRICE_JUMP,
+                                 f"dismissed the cited comparison quote as fake: {line[:80]!r}"))
+    if current_total > prev_total:
+        events.append(make_event(StanceEventKind.PRICE_JUMP,
+                                 f"price rose from ${prev_total:,} to ${current_total:,}"))
+    if role == "press":
+        surfaced = count_fees_surfaced(line, scenario.hidden_fee_codes)
+        if scenario.hidden_fee_codes and surfaced == 0:
+            events.append(make_event(StanceEventKind.FEE_DENIAL_CAUGHT,
+                                     "denied fees the intake already knows this job carries"))
+        elif surfaced:
+            events.append(make_event(StanceEventKind.WILLING_ITEMIZATION, "itemized every fee on request"))
+    if role == "cite" and current_total < prev_total:
+        events.append(make_event(StanceEventKind.CONCESSION_MADE,
+                                 f"conceded ${prev_total - current_total:,} after the citation"))
+    if phase is NegotiationPhase.COMMIT and red_flag_known:
+        events.append(make_event(StanceEventKind.RED_FLAG_FEE,
+                                 f"{scenario.deposit_pct}% non-refundable deposit is a documented dealbreaker"))
+    if phase is NegotiationPhase.OPENING and scenario.benchmark_low <= scenario.opening_total <= scenario.benchmark_high:
+        events.append(make_event(StanceEventKind.PRICE_NEAR_BENCHMARK,
+                                 f"opened at ${scenario.opening_total:,}, inside the benchmark corridor"))
+    return tuple(events)
+
+
+def run_match_adaptive(*, scenario: Scenario, champion_genomes: Mapping[str, Mapping[str, Any]],
+                       merged_by_stance: Mapping[str, Mapping[str, Any]], stance_config: StanceConfig,
+                       attacker: Any, bus: EventBus, call_id: str,
+                       talker_adapter: Any | None = None) -> MatchResult:
+    """Adaptive counterpart to run_match: the same six-phase loop, except nothing is precomputed
+    — a fresh StanceMachine starts NEUTRAL and, turn by turn, its CURRENT stance selects which
+    champion genome's knobs (cite phase, press-vs-probe, anchor, voss/stall phrases, talker
+    prompt) shape the turn about to be built. Detection happens here (see
+    ``_detect_stance_events``); the machine itself only scores and switches."""
+    machine = StanceMachine(stance_config)
+    fsm = NegotiationFSM()
+    talker = Talker(adapter=talker_adapter or OfflineTalkerAdapter(), bus=bus)
+    bus.publish(BusEvent(call_id=call_id, module="arena", kind="arena.scenario", payload=scenario.as_dict()))
+    tail = ""
+    turns: list[ArenaTurn] = []
+    stance_trace: list[str] = []
+    fees_surfaced = 0
+    unapproved = 0
+    prev_total = scenario.opening_total
+    # press_hidden_fees is true on all three champions, so this scenario-truth fact never
+    # changes with the active stance — safe to compute once, same as the static run_match.
+    red_flag_known = scenario.deposit_pct >= 30 and not scenario.deposit_refundable
+    phases = (NegotiationPhase.OPENING, NegotiationPhase.DISCOVERY, NegotiationPhase.PRESSURE_TEST,
+              NegotiationPhase.LEVERAGE, NegotiationPhase.COMMIT, NegotiationPhase.WRAP)
+    for index, phase in enumerate(phases, start=1):
+        active = machine.stance
+        stance_trace.append(active)
+        active_genome = champion_genomes[active]
+        active_merged = merged_by_stance[active]
+        tactics = active_genome["tactics"]
+        anchor = scenario.competitor_quote * (100 - int(tactics["anchor_discount_pct"])) // 100
+        step = _defender_turn(phase, scenario, active_genome, active_merged,
+                              anchor=anchor, red_flag_known=red_flag_known)
+        if phase is not fsm.phase:
+            fsm.transition(phase, full_estimate=True)
+        card = CallCard(version=index, phase=phase, phase_goal=step["goal"], next_move=step["move"],
+                        allowed_fact_ids=step["facts"], tone_preset=step["tone"], stance=active)
+        if talker_adapter is not None and hasattr(talker_adapter, "set_talker_prompt"):
+            talker_adapter.set_talker_prompt(active_genome["talker_prompt"])
+        draft = talker.draft(card=card, transcript_tail=tail, call_id=call_id).text
+        ledger = _ledger(scenario, anchor=anchor, call_id=call_id)
+        gate = HonestyGate(stall_phrases=active_merged["voss"]["stalls"])
+        decision = gate.evaluate(draft=draft, card=card, ledger_facts=ledger)
+        bus.publish(BusEvent(call_id=call_id, module="gate", kind="gate.decision",
+                             payload={"verdict": decision.verdict, "reason": decision.reason,
+                                      "verdict_ref": decision.verdict_ref, "card_version": index}))
+        spoken = decision.approved if decision.verdict == "allow" else decision.stall
+        if not isinstance(spoken, ApprovedUtterance) or not spoken.gate_issued:
+            unapproved += 1  # unreachable while the gate holds; the principled judge vetoes it
+        bus.publish(BusEvent(call_id=call_id, module="arena", kind="defender.utterance",
+                             payload={"text": spoken.text, "card_version": spoken.card_version, "stance": active},
+                             refs=(spoken.gate_verdict_ref,)))
+        tail = f"{tail}\nNEGOTIATOR: {spoken.text}"[-1200:]
+        role = step["role"] if decision.verdict == "allow" else None
+        line = attacker.respond(phase, role=role, defender_line=spoken.text,
+                                anchor=anchor if role == "anchor" else None)
+        if role == "press":
+            fees_surfaced = count_fees_surfaced(line, scenario.hidden_fee_codes)
+        bus.publish(BusEvent(call_id=call_id, module="arena", kind="attacker.line",
+                             payload={"text": line, "phase": phase.value, "total": attacker.total}))
+        tail = f"{tail}\nPROVIDER: {line}"[-1200:]
+        turns.append(ArenaTurn(index=index, phase=phase, defender=spoken.text, verdict=decision.verdict,
+                               reason=decision.reason, attacker=line, attacker_total=attacker.total, role=role))
+        events = _detect_stance_events(phase=phase, role=role, line=line, scenario=scenario,
+                                       prev_total=prev_total, current_total=attacker.total,
+                                       red_flag_known=red_flag_known)
+        machine.step(events)
+        prev_total = attacker.total
+    fsm.finish()
+    bad_switch = next((switch for switch in machine.switches if switch.to_stance == "bad"), None)
+    conceded = 0
+    if bad_switch is not None and machine.first_suspicion_turn is not None:
+        start = turns[machine.first_suspicion_turn - 1].attacker_total
+        end = turns[bad_switch.turn - 1].attacker_total
+        conceded = max(0, start - end)
+    result = MatchResult(
+        scenario=scenario, turns=tuple(turns), opening_total=scenario.opening_total,
+        final_total=attacker.total, deal_closed=not red_flag_known, fees_surfaced=fees_surfaced,
+        gate_blocks=sum(1 for turn in turns if turn.verdict == "block"),
+        leaks=sum(1 for turn in turns if turn.reason in _LEAK_REASONS),
+        spoken_unapproved=unapproved,
+        stance_trace=tuple(stance_trace),
+        stance_switches=tuple(switch.as_dict() for switch in machine.switches),
+        switch_latency_turns=machine.switch_latency,
+        conceded_during_latency_usd=conceded,
+    )
+    assert result.spoken_unapproved == 0, "honesty gate bypassed — dishonesty must stay unexpressible"
+    return result
+
+
+# --------------------------------------------------------------------------- #
 # Judge — deterministic scorecards.
 #
 # Reserve (no-deal) formula: walking away costs the client their BATNA — the
@@ -612,13 +814,19 @@ def judge(match: MatchResult, *, mode: str) -> dict[str, Any]:
     else:
         score = money
     winner = "attacker" if dishonest or score < 0 else ("defender" if score > 0 else "draw")
-    return {
+    card = {
         "mode": mode, "persona": scenario.persona, "scenario": scenario.as_dict(),
         "deal_closed": match.deal_closed, "opening_total": match.opening_total,
         "final_total": match.final_total, "concession": match.opening_total - match.final_total,
         "gate_blocks": match.gate_blocks, "leaks": match.leaks,
         "fees_surfaced": match.fees_surfaced, "winner": winner, "score": score,
     }
+    if match.stance_trace:  # adaptive-only: absent entirely from a static-genome scorecard
+        card["stance_trace"] = list(match.stance_trace)
+        card["stance_switches"] = list(match.stance_switches)
+        card["switch_latency_turns"] = match.switch_latency_turns
+        card["conceded_during_latency_usd"] = match.conceded_during_latency_usd
+    return card
 
 
 def _aggregate(scorecards: list[dict[str, Any]]) -> dict[str, int]:
@@ -748,6 +956,7 @@ class ArenaRun:
     coach_requested_live: bool
     defender: str
     defender_llm_turns: int
+    adaptive: bool = False
 
 
 def _resolve_attacker_profile(attacker_profile: str, *, seed: int, index: int) -> str:
@@ -775,9 +984,19 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
         raise ValueError(f"attacker_profile must be one of {(*ATTACKER_PROFILES, 'mixed')}")
     if defender not in ("offline", "live"):
         raise ValueError("defender must be 'offline' or 'live'")
-    genome = load_genome(genome_path or SEED_GENOME_PATH)
+    adaptive = str(genome_path) == ADAPTIVE_GENOME
     vertical = yaml.safe_load(VERTICAL_PATH.read_text(encoding="utf-8"))
-    merged = merge_overlay(vertical, genome)
+    if adaptive:
+        champion_genomes = {name: load_genome(path) for name, path in CHAMPION_GENOME_PATHS.items()}
+        merged_by_stance = {name: merge_overlay(vertical, g) for name, g in champion_genomes.items()}
+        stance_config = stance_config_from_vertical(vertical)
+        # neutral doubles as the nominal genome/merged for the parts of run_arena that are not
+        # stance-aware (the coach mutates a copy of it; next_genome/genome_diff still print).
+        genome = champion_genomes["neutral"]
+        merged = merged_by_stance["neutral"]
+    else:
+        genome = load_genome(genome_path or SEED_GENOME_PATH)
+        merged = merge_overlay(vertical, genome)
     scenarios = draw_scenarios(seed=seed, loops=loops)  # upfront: dialogue can never touch these
     run_id = run_id or f"{mode}-s{seed}-{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}"
     run_dir = Path(out_root or DEFAULT_OUT_ROOT) / run_id
@@ -806,8 +1025,14 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
             talker_adapter = (GenomeTalkerAdapter(talker_prompt=merged["arena"]["talker_prompt"],
                                                   model="gpt-4.1-mini", client=defender_client)
                               if defender == "live" else None)
-            match = run_match(scenario=scenario, genome=genome, merged=merged,
-                              attacker=attacker, bus=bus, call_id=call_id, talker_adapter=talker_adapter)
+            if adaptive:
+                match = run_match_adaptive(scenario=scenario, champion_genomes=champion_genomes,
+                                           merged_by_stance=merged_by_stance, stance_config=stance_config,
+                                           attacker=attacker, bus=bus, call_id=call_id,
+                                           talker_adapter=talker_adapter)
+            else:
+                match = run_match(scenario=scenario, genome=genome, merged=merged,
+                                  attacker=attacker, bus=bus, call_id=call_id, talker_adapter=talker_adapter)
             card = judge(match, mode=mode)
             card["profile"] = resolved
             bus.publish(BusEvent(call_id=call_id, module="arena", kind="arena.scorecard", payload=card))
@@ -847,7 +1072,7 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
                     scenarios=scenarios, matches=matches, scorecards=scorecards,
                     live_attacker_turns=live_turns, live_coach=coach_engaged,
                     coach_requested_live=coach_requested_live, defender=defender,
-                    defender_llm_turns=defender_turns)
+                    defender_llm_turns=defender_turns, adaptive=adaptive)
 
 
 # --------------------------------------------------------------------------- #
@@ -881,6 +1106,21 @@ def render(run: ArenaRun) -> None:
         warn = "" if run.defender_llm_turns else "  ⚠ OFFLINE FALLBACK (openai package / API keys?)"
         lead = "" if run.live else "\n"
         print(f"{lead}  defender engagement: {run.defender_llm_turns}/{total_turns} drafts via LLM{warn}")
+    if run.adaptive:
+        print("\n  stance trace (--genome adaptive):")
+        for card in run.scorecards:
+            trace = card.get("stance_trace", [])
+            switches = card.get("stance_switches", [])
+            latency = card.get("switch_latency_turns")
+            conceded = card.get("conceded_during_latency_usd", 0)
+            trace_str = " → ".join(trace) if trace else "-"
+            if switches:
+                switch_str = "; ".join(f"{s['from_stance']}→{s['to_stance']} @turn {s['turn']}" for s in switches)
+            else:
+                switch_str = "no switches"
+            latency_str = (f", switch latency {latency} turn(s), ${conceded:,} conceded in between"
+                           if latency is not None else "")
+            print(f"    match {card['scenario']['match'] + 1}: {trace_str}  [{switch_str}{latency_str}]")
     coach = ("live sol coach" if run.live_coach
              else "offline deterministic coach (live coach fell back)" if run.coach_requested_live
              else "offline deterministic coach")
@@ -941,7 +1181,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--loops", type=int, default=5, help="number of matches (default: 5)")
     parser.add_argument("--seed", type=int, default=7, help="scenario stream seed (default: 7)")
     parser.add_argument("--genome", default=None,
-                        help="defender genome YAML (default: config/arena/genome_gen000.yaml)")
+                        help="defender genome YAML (default: config/arena/genome_gen000.yaml); "
+                             "'adaptive' loads the goodcop/badcop/neutral champions and lets the "
+                             "brain-side stance machine pick per-turn")
     parser.add_argument("--live", action="store_true",
                         help="LLM attacker + sol coach (needs API keys); offline scripted otherwise")
     parser.add_argument("--live-coach", action="store_true",

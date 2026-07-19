@@ -67,12 +67,20 @@ class CallCard(Contract):
     allowed_fact_ids: tuple[str, ...] = ()
     tone_preset: str = Field(min_length=1)
     client_directives: tuple[str, ...] = ()
+    stance: str = "neutral"
 
     @field_validator("allowed_fact_ids")
     @classmethod
     def unique_fact_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if len(value) != len(set(value)) or any(not item for item in value):
             raise ValueError("allowed_fact_ids entries must be non-empty strings and unique")
+        return value
+
+    @field_validator("stance")
+    @classmethod
+    def known_stance(cls, value: str) -> str:
+        if value not in ("neutral", "good", "bad"):
+            raise ValueError("stance must be one of 'neutral', 'good', 'bad'")
         return value
 
 
@@ -219,6 +227,34 @@ class TacticEvent(Contract):
     type: TacticType
     utterance_ref: str = Field(min_length=1)
     confidence: float = Field(ge=0, le=1)
+
+
+class StanceEventKind(StrEnum):
+    """The fixed vocabulary of typed stance signals. Suspicion-bearing: INJECTION_DETECTED,
+    RED_FLAG_FEE, FEE_DENIAL_CAUGHT, PRICE_JUMP, PRESSURE_DEADLINE. Trust-bearing:
+    WILLING_ITEMIZATION, PRICE_NEAR_BENCHMARK, CONCESSION_MADE. Which bucket a kind belongs to
+    is a stance.py concern (logic), not this contract's."""
+
+    INJECTION_DETECTED = "injection_detected"
+    RED_FLAG_FEE = "red_flag_fee"
+    FEE_DENIAL_CAUGHT = "fee_denial_caught"
+    PRICE_JUMP = "price_jump"
+    PRESSURE_DEADLINE = "pressure_deadline"
+    WILLING_ITEMIZATION = "willing_itemization"
+    PRICE_NEAR_BENCHMARK = "price_near_benchmark"
+    CONCESSION_MADE = "concession_made"
+
+
+class StanceEvent(Contract):
+    """A typed, caller-detected signal fed to a brain StanceMachine. The machine never detects
+    anything itself -- callers (e.g. the arena, or a live call in a later build) classify the
+    evidence and hand over one of these; the machine only accumulates weight and switches.
+    ``weight_key`` looks up the event's weight in the stance config; it defaults to ``kind``
+    but callers may point two events of the same kind at different weight buckets."""
+
+    kind: StanceEventKind
+    weight_key: str = Field(min_length=1)
+    detail: str = Field(min_length=1)
 
 
 class CallStatus(StrEnum):

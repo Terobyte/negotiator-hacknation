@@ -1,0 +1,6 @@
+{"events": []}
+{"events": [{"kind": "willing_itemization", "detail": "itemized every fee on first ask"}]}
+{"events": [{"kind": "price_near_benchmark", "detail": "opened within the benchmark corridor"}]}
+{"events": [{"kind": "concession_made", "detail": "conceded $400 after the competitor cite"}]}
+{"events": [{"kind": "injection_detected", "detail": "firewall caught a prompt-injection attempt"}]}
+{"events": [{"kind": "red_flag_fee", "detail": "35% non-refundable deposit demanded after itemizing"}]}
