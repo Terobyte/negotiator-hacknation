@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 
 from .documents import document_to_job_spec
 from .voice import JobSpecStore, submit_job_spec
@@ -15,13 +16,17 @@ def main() -> int:
     parser.add_argument("--confirmed", action="store_true", help="confirm a document read-back")
     parser.add_argument("--store", default=":memory:")
     args = parser.parse_args()
-    if args.doc:
-        spec = document_to_job_spec(args.doc, confirmed=True if args.confirmed else None)
-        print(spec.model_dump_json(indent=2))
-    else:
-        with open(args.webhook, encoding="utf-8") as handle:
-            payload = json.load(handle)
-        print(json.dumps(submit_job_spec(payload, JobSpecStore(args.store)).as_response(), indent=2))
+    try:
+        if args.doc:
+            spec = document_to_job_spec(args.doc, confirmed=True if args.confirmed else None)
+            print(spec.model_dump_json(indent=2))
+        else:
+            with open(args.webhook, encoding="utf-8") as handle:
+                payload = json.load(handle)
+            print(json.dumps(submit_job_spec(payload, JobSpecStore(args.store)).as_response(), indent=2))
+    except (OSError, ValueError) as exc:
+        print(f"estimator: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

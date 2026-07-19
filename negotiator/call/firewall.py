@@ -20,6 +20,10 @@ _INJECTION = re.compile(
 )
 _MARKUP = re.compile(r"(?i)(?:#{1,6}\s*(?:system|developer|assistant)|</?(?:system|developer|assistant|tool)[^>]*>|```(?:system|prompt|xml)?)")
 MAX_TRANSCRIPT_CHARS = 8_000
+_CONFUSABLES = str.maketrans({
+    "а":"a", "е":"e", "о":"o", "р":"p", "с":"c", "х":"x", "у":"y", "і":"i", "ј":"j",
+    "А":"A", "Е":"E", "О":"O", "Р":"P", "С":"C", "Х":"X", "У":"Y", "І":"I", "Ј":"J",
+})
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,12 +46,16 @@ def sanitize_transcript(text: str) -> FirewallDecision:
     if _MARKUP.search(sanitized):
         reasons.append("markup_role_delimiter")
         sanitized = _MARKUP.sub(" [quoted-role-marker] ", sanitized)
-    if _ROLE_DELIMITERS.search(sanitized):
+    role_scan = sanitized.translate(_CONFUSABLES)
+    if _ROLE_DELIMITERS.search(role_scan):
         reasons.append("role_delimiter")
-        sanitized = _ROLE_DELIMITERS.sub(" [quoted-role-marker] ", sanitized)
-    if _INJECTION.search(sanitized):
+        for match in reversed(tuple(_ROLE_DELIMITERS.finditer(role_scan))):
+            sanitized = sanitized[:match.start()] + " [quoted-role-marker] " + sanitized[match.end():]
+    injection_scan = sanitized.translate(_CONFUSABLES)
+    if _INJECTION.search(injection_scan):
         reasons.append("prompt_injection")
-        sanitized = _INJECTION.sub("[untrusted instruction removed]", sanitized)
+        for match in reversed(tuple(_INJECTION.finditer(injection_scan))):
+            sanitized = sanitized[:match.start()] + "[untrusted instruction removed]" + sanitized[match.end():]
     sanitized = " ".join(sanitized.split())
     return FirewallDecision(sanitized=sanitized, suspicious=bool(reasons), reasons=tuple(reasons))
 

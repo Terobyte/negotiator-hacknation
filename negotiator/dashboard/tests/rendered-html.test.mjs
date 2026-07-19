@@ -42,3 +42,69 @@ test("client uses authenticated replay, cursor WebSocket, and acknowledged whisp
   assert.match(auth,/DASHBOARD_ALLOWED_EMAILS/);
   for (const proxy of [replayProxy,whisperProxy,ticketProxy]) assert.match(proxy,/authorizeWorkspaceRequest/);
 });
+
+test("BUG-26: workspace identity is cryptographically verified", async () => {
+  const auth = await readFile(new URL("../app/api/_auth.ts", import.meta.url), "utf8");
+  assert.match(auth, /(?:jwt|jwk|signature|hmac|crypto\.subtle)/i);
+});
+
+test("BUG-27: call selection and whispers use journal-backed call ids", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /const calls = \[/);
+  assert.doesNotMatch(source, /JSON\.stringify\(\{call_id:\s*"call-3-pressure_closer"/);
+  assert.match(source, /setSelectedCallId|setActiveCallId/);
+});
+
+test("BUG-28: money formatting rejects non-finite values", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /Number\.isFinite/);
+});
+
+// BUG-45 through BUG-47 (bugs.md, part 2) are not fixed yet. These are written as
+// `todo` tests: node:test still runs and reports them, but a failing todo does not
+// fail the overall run. Once a fix lands the assertion should be promoted to a plain
+// `test(...)` so it becomes a real regression guard.
+
+test(
+  "BUG-45: proxy routes wrap the backend fetch in try/catch and return a structured 502",
+  { todo: "BUG-45: journal-ticket/whisper/replay route.ts let a failed fetch throw a raw 500" },
+  async () => {
+    const [ticketProxy, whisperProxy, replayProxy] = await Promise.all([
+      readFile(new URL("../app/api/journal-ticket/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/api/whisper/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/api/replay/route.ts", import.meta.url), "utf8"),
+    ]);
+    for (const proxy of [ticketProxy, whisperProxy, replayProxy]) {
+      assert.match(proxy, /try\s*{[\s\S]*fetch\(/);
+      assert.match(proxy, /catch/);
+    }
+  },
+);
+
+test(
+  "BUG-46: whisper route validates call_id/directive and caps body size before proxying",
+  { todo: "BUG-46: whisper/route.ts proxies request.text() straight through with no server-side validation" },
+  async () => {
+    const whisperProxy = await readFile(new URL("../app/api/whisper/route.ts", import.meta.url), "utf8");
+    assert.doesNotMatch(whisperProxy, /body:\s*await request\.text\(\)/);
+    assert.match(whisperProxy, /call_id/);
+    assert.match(whisperProxy, /directive/);
+    assert.match(whisperProxy, /500/); // server-side length cap, mirrored from the client's maxLength
+  },
+);
+
+test(
+  "BUG-47: proxy routes trust the backend's real content-type instead of hardcoding application/json",
+  { todo: "BUG-47: journal-ticket/whisper/replay route.ts hardcode Content-Type: application/json for a streamed body" },
+  async () => {
+    const [ticketProxy, whisperProxy, replayProxy] = await Promise.all([
+      readFile(new URL("../app/api/journal-ticket/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/api/whisper/route.ts", import.meta.url), "utf8"),
+      readFile(new URL("../app/api/replay/route.ts", import.meta.url), "utf8"),
+    ]);
+    for (const proxy of [ticketProxy, whisperProxy, replayProxy]) {
+      assert.doesNotMatch(proxy, /"Content-Type":\s*"application\/json"/);
+      assert.match(proxy, /response\.headers\.get\(["']content-type["']\)/i);
+    }
+  },
+);

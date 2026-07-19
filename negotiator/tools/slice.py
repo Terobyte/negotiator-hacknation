@@ -14,10 +14,13 @@ def slice_journal(
 ) -> list[dict]:
     selected: list[dict] = []
     with Path(source).open(encoding="utf-8") as stream:
-        for line in stream:
+        for line_number, line in enumerate(stream, 1):
             if not line.strip():
                 continue
-            row = json.loads(line)
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"invalid JSONL at line {line_number}") from exc
             if call_id is not None and row.get("call_id") != call_id:
                 continue
             if module is not None and row.get("module") != module:

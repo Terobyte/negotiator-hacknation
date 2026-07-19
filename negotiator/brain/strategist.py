@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
@@ -137,12 +138,22 @@ def _benchmark_and_competing_quote(facts: Sequence[LedgerFact]) -> tuple[float |
         if fact.kind is LedgerFactKind.BENCHMARK and isinstance(fact.value, Mapping):
             low = fact.value.get("low")
             if low is not None:
-                benchmark = float(low)
+                benchmark = _finite_float(low)
         elif fact.kind is LedgerFactKind.QUOTE and isinstance(fact.value, Mapping):
             total = fact.value.get("total")
             if total is not None:
-                competing = float(total) if competing is None else min(competing, float(total))
+                parsed = _finite_float(total)
+                if parsed is not None:
+                    competing = parsed if competing is None else min(competing, parsed)
     return benchmark, competing
+
+
+def _finite_float(value: Any) -> float | None:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return parsed if math.isfinite(parsed) else None
 
 
 class Strategist:
@@ -180,9 +191,11 @@ class Strategist:
         else:
             benchmark, competing = _benchmark_and_competing_quote(facts)
             curve = str(opponent_summary.get("curve", "linear"))
-            current = float(opponent_summary.get("prices", [float("inf")])[-1])
+            prices = opponent_summary.get("prices")
+            current = _finite_float(prices[-1]) if isinstance(prices, Sequence) and prices else None
             floor = opponent_summary.get("floor")
-            at_floor = floor is not None and current <= float(floor) * 1.03
+            parsed_floor = _finite_float(floor)
+            at_floor = current is not None and parsed_floor is not None and current <= parsed_floor * 1.03
             if at_floor or curve == "conceder":
                 card = CallCard(
                     version=version,

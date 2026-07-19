@@ -39,6 +39,8 @@ class FMCSAClient:
 
     def verify_dot(self, dot: str | int) -> dict[str, Any]:
         identifier = _digits(dot, "USDOT")
+        if not self.web_key:
+            raise RuntimeError("FMCSA_WEB_KEY is not configured")
         try:
             return {
                 "query": {"type": "USDOT", "value": identifier},
@@ -52,6 +54,8 @@ class FMCSAClient:
 
     def verify_mc(self, mc: str | int) -> dict[str, Any]:
         identifier = _digits(mc, "MC")
+        if not self.web_key:
+            raise RuntimeError("FMCSA_WEB_KEY is not configured")
         try:
             carrier = self._get(f"/docket-number/{identifier}")
             result: dict[str, Any] = {

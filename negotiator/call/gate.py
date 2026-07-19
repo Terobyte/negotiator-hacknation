@@ -21,21 +21,18 @@ from negotiator.core.contracts.models import _GATE_CAPABILITY
 _MONEY_RE = re.compile(
     r"(?i)(?:\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)|([0-9][0-9,]*(?:\.\d{1,2})?)\s*(?:usd|dollars?|bucks?))"
 )
-_NUMBER_WORDS = {
-    "one": 1,
-    "two": 2,
-    "three": 3,
-    "four": 4,
-    "five": 5,
-    "six": 6,
-    "seven": 7,
-    "eight": 8,
-    "nine": 9,
-    "ten": 10,
-}
-_WORD_MONEY_RE = re.compile(
-    r"(?i)\b(" + "|".join(_NUMBER_WORDS) + r")\s+thousand(?:\s+dollars?)?\b"
-)
+_EN_SMALL = {"zero":0,"one":1,"two":2,"three":3,"four":4,"five":5,"six":6,"seven":7,"eight":8,"nine":9,
+             "ten":10,"eleven":11,"twelve":12,"thirteen":13,"fourteen":14,"fifteen":15,"sixteen":16,
+             "seventeen":17,"eighteen":18,"nineteen":19,"twenty":20,"thirty":30,"forty":40,"fifty":50,
+             "sixty":60,"seventy":70,"eighty":80,"ninety":90}
+_RU_SMALL = {"ноль":0,"один":1,"одна":1,"два":2,"две":2,"три":3,"четыре":4,"пять":5,"шесть":6,"семь":7,
+             "восемь":8,"девять":9,"десять":10,"одиннадцать":11,"двенадцать":12,"тринадцать":13,
+             "четырнадцать":14,"пятнадцать":15,"шестнадцать":16,"семнадцать":17,"восемнадцать":18,
+             "девятнадцать":19,"двадцать":20,"тридцать":30,"сорок":40,"пятьдесят":50,"шестьдесят":60,
+             "семьдесят":70,"восемьдесят":80,"девяносто":90,"сто":100,"двести":200,"триста":300,
+             "четыреста":400,"пятьсот":500,"шестьсот":600,"семьсот":700,"восемьсот":800,"девятьсот":900}
+_CURRENCY_WORDS = {"dollar","dollars","buck","bucks","usd","доллар","доллара","долларов","рубль","рубля","рублей"}
+_THOUSAND_WORDS = {"thousand","тысяча","тысячи","тысяч"}
 _BARE_NUMBER_RE = re.compile(r"(?<![\w.])([0-9][0-9,]*(?:\.\d{1,2})?)(?![\w,])")
 _QUOTE_LANGUAGE_RE = re.compile(
     r"(?i)\b(?:quote|quoted|estimate|estimated|offer|bid|price|rate|котиров\w*|смет\w*|цен\w*)\b"
@@ -117,6 +114,7 @@ class HonestyGate:
         amounts = _money_amounts(text)
         if quote_language:
             amounts.update(_bare_amounts(text))
+            amounts.update(map(Decimal, _bare_word_amounts(text)))
         supported_amounts = {
             amount for fact in facts for amount in _numbers_in_value(fact.value)
         }
@@ -182,9 +180,70 @@ def _money_amounts(text: str) -> set[Decimal]:
             amounts.add(Decimal(raw.replace(",", "")))
         except InvalidOperation:
             continue
-    for match in _WORD_MONEY_RE.finditer(text):
-        amounts.add(Decimal(_NUMBER_WORDS[match.group(1).casefold()] * 1000))
+    amounts.update(map(Decimal, _word_money_amounts(text)))
     return amounts
+
+
+def _word_money_amounts(text: str) -> set[int]:
+    tokens = re.findall(r"[a-z]+|[а-яё]+", text.casefold().replace("-", " "))
+    amounts: set[int] = set()
+    for index, token in enumerate(tokens):
+        if token not in _CURRENCY_WORDS and token not in _THOUSAND_WORDS:
+            continue
+        end = index if token in _CURRENCY_WORDS else index + 1
+        for start in range(max(0, end - 7), end):
+            phrase = tokens[start:end]
+            value = _parse_number_words(phrase)
+            if value is not None and value > 0:
+                amounts.add(value)
+    return amounts
+
+
+def _bare_word_amounts(text: str) -> set[int]:
+    tokens = re.findall(r"[a-z]+|[а-яё]+", text.casefold().replace("-", " "))
+    markers = {"quote","quoted","estimate","estimated","offer","bid","price","rate","смета","сметы","цену","цена","ставка"}
+    marker_indexes = {index for index, token in enumerate(tokens) if token in markers}
+    numeral = set(_EN_SMALL) | set(_RU_SMALL) | _THOUSAND_WORDS | {"hundred", "and"}
+    amounts: set[int] = set()
+    start = 0
+    while start < len(tokens):
+        if tokens[start] not in numeral:
+            start += 1; continue
+        end = start
+        while end < len(tokens) and tokens[end] in numeral:
+            end += 1
+        if any(abs(marker - start) <= 3 or abs(marker - (end - 1)) <= 3 for marker in marker_indexes):
+            value = _parse_number_words(tokens[start:end])
+            if value is not None and value > 0:
+                amounts.add(value)
+        start = end
+    return amounts
+
+
+def _parse_number_words(tokens: list[str]) -> int | None:
+    if not tokens:
+        return None
+    if all(token in _EN_SMALL or token in {"hundred", "thousand", "and"} for token in tokens):
+        total = current = 0
+        for token in tokens:
+            if token == "and":
+                continue
+            if token == "hundred":
+                current = max(1, current) * 100
+            elif token == "thousand":
+                total += max(1, current) * 1000; current = 0
+            else:
+                current += _EN_SMALL[token]
+        return total + current
+    if all(token in _RU_SMALL or token in _THOUSAND_WORDS for token in tokens):
+        total = current = 0
+        for token in tokens:
+            if token in _THOUSAND_WORDS:
+                total += max(1, current) * 1000; current = 0
+            else:
+                current += _RU_SMALL[token]
+        return total + current
+    return None
 
 
 def _bare_amounts(text: str) -> set[Decimal]:

@@ -7,7 +7,7 @@ import urllib.request
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, overload
 
 
 PLACES_URL = "https://places.googleapis.com/v1/places:searchText"
@@ -24,6 +24,23 @@ class Business:
     phone: str
     category: str = "moving_company"
     address: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class PlacesSearchResult(Sequence[Business]):
+    businesses: tuple[Business, ...]
+    fallback: bool
+    error: str | None = None
+
+    def __len__(self) -> int:
+        return len(self.businesses)
+
+    @overload
+    def __getitem__(self, index: int) -> Business: ...
+    @overload
+    def __getitem__(self, index: slice) -> tuple[Business, ...]: ...
+    def __getitem__(self, index: int | slice) -> Business | tuple[Business, ...]:
+        return self.businesses[index]
 
 
 def _urllib_request(
@@ -59,7 +76,7 @@ class PlacesClient:
         self.fixture = Path(fixture)
         self.timeout = timeout
 
-    def search_movers(self, city: str) -> list[Business]:
+    def search_movers(self, city: str) -> PlacesSearchResult:
         city = city.strip()
         if not city:
             raise ValueError("city cannot be blank")
@@ -68,6 +85,8 @@ class PlacesClient:
             "includedType": "moving_company",
             "pageSize": 8,
         }
+        fallback = False
+        error: str | None = None
         try:
             if not self.api_key:
                 raise RuntimeError("GOOGLE_PLACES_API_KEY is not configured")
@@ -82,9 +101,11 @@ class PlacesClient:
                 payload,
                 self.timeout,
             )
-        except Exception:
+        except Exception as exc:
+            fallback = True
+            error = str(exc)
             data = json.loads(self.fixture.read_text(encoding="utf-8"))
-        return parse_places(data)
+        return PlacesSearchResult(tuple(parse_places(data)), fallback, error)
 
 
 def parse_places(data: Mapping[str, Any]) -> list[Business]:
@@ -120,7 +141,7 @@ def main() -> None:
     args = parser.parse_args()
     businesses = PlacesClient().search_movers(args.city)
     if args.json:
-        print(json.dumps([asdict(item) for item in businesses], ensure_ascii=False, indent=2))
+        print(json.dumps({"fallback":businesses.fallback,"error":businesses.error,"businesses":[asdict(item) for item in businesses]}, ensure_ascii=False, indent=2))
     else:
         print(display_list(businesses))
 

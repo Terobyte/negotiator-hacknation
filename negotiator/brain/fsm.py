@@ -30,20 +30,22 @@ class NegotiationFSM:
     def __init__(self, phase: NegotiationPhase = NegotiationPhase.OPENING) -> None:
         self.phase = phase
 
-    def transition(self, target: NegotiationPhase, *, full_estimate: bool = False) -> NegotiationPhase:
-        if target is self.phase:
+    def transition(self, target: NegotiationPhase | str, *, full_estimate: bool = False) -> NegotiationPhase:
+        target = NegotiationPhase(target)
+        if target == self.phase:
             return self.phase
         expected = _NEXT.get(self.phase)
-        if target is not expected:
+        if target != expected:
             raise ForbiddenTransition(self.phase, target, "phases cannot be skipped or reversed")
-        if target is NegotiationPhase.LEVERAGE and not full_estimate:
+        if target == NegotiationPhase.LEVERAGE and not full_estimate:
             raise ForbiddenTransition(self.phase, target, "a complete estimate is required before leverage")
         self.phase = target
         return self.phase
 
     def finish(self) -> None:
-        if self.phase is not NegotiationPhase.WRAP:
-            raise ForbiddenTransition(self.phase, NegotiationPhase.WRAP, "call cannot exit before WRAP")
+        """Close the lifecycle, including provider hangups before the normal WRAP phase."""
+
+        self.phase = NegotiationPhase.WRAP
 
 
 def replay(path: str | Path) -> NegotiationPhase:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import argparse, asyncio, base64, hashlib, hmac, json, os, tempfile, time, uuid
+import argparse, asyncio, base64, hashlib, hmac, json, logging, os, tempfile, time, uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -11,7 +11,9 @@ import yaml
 
 from negotiator.call.firewall import sanitize_transcript
 from negotiator.call.gate import HonestyGate, PrivateTerms
+from negotiator.call.stt import DeepgramConfig
 from negotiator.call.transport.twilio import FastAPIWebsocketTransport, RecordingMetadata, TwilioCallsClient, TwilioMediaFrame, TwilioSignatureValidator, TwilioStart
+from negotiator.brain.fsm import NegotiationFSM
 from negotiator.core.bus import EventBus
 from negotiator.core.contracts import BusEvent, CallCard, CallOutcome, CallStatus, JournalEvent, LedgerFact
 from negotiator.core.journal import Journal
@@ -118,6 +120,7 @@ class PendingTwilioCalls:
 class Composition:
     config:RuntimeConfig; vertical_config:dict[str,Any]; bus:EventBus; journal:Journal
     degradation:DegradationRouter; gate:HonestyGate
+    stt_config:DeepgramConfig
     active_calls:set[str]=field(default_factory=lambda:{"call-1-lowball_broker","call-2-rushed_dispatcher","call-3-pressure_closer"})
     directive_queues:dict[str,deque[UntrustedTranscript]]=field(default_factory=dict)
     def whisper(self,call_id:str,directive:str)->BusEvent:
@@ -165,7 +168,8 @@ class CallOrchestrator:
             if record.outcome.call_id==planned.call_id or record.outcome.mover_id==planned.mover_id:return record.outcome
         return None
     async def run_plan(self,businesses:Sequence[Any],demo_number_map:Mapping[str,str]|None=None)->tuple[CallOutcome,...]:
-        plan=build_call_plan(businesses,demo_number_map); outcomes=[]; evidence=[]
+        configured_map=self.state.vertical_config.get("demo_number_map") if demo_number_map is None else demo_number_map
+        plan=build_call_plan(businesses,configured_map); outcomes=[]; evidence=[]
         for planned in plan:
             outcome=await supervise_call_async(planned,lambda p=planned:self.run_call(p,tuple(evidence)),journal_tail=lambda cid:[e for e in self.state.journal.replay() if e.call_id==cid])
             outcomes.append(outcome); fact=outcome_evidence(outcome)
@@ -173,7 +177,7 @@ class CallOrchestrator:
         return tuple(outcomes)
     def make_live_runner(self,session:LiveSession,adapters:LiveAdapters)->ModeRunner:
         async def run(planned:PlannedCall,evidence:tuple[LedgerFact,...])->CallOutcome|None:
-            transcripts=[]
+            transcripts=[];fsm:NegotiationFSM|None=None
             async for frame in session.frames():
                 signal=await adapters.arbiter(frame)
                 if signal=="barge_in":await session.interrupt()
@@ -184,6 +188,8 @@ class CallOrchestrator:
                 self.state.bus.publish(BusEvent(call_id=planned.call_id,module="firewall",kind="transcript",payload={"text":clean.sanitized,"suspicious":clean.suspicious,"authoritative":False}))
                 context=TalkerContext(UntrustedTranscript(clean.sanitized,clean.suspicious,clean.reasons),self.state.take_directives(planned.call_id))
                 turn=await adapters.talker(context,planned,evidence)
+                if fsm is None:fsm=NegotiationFSM(turn.card.phase)
+                else:fsm.transition(turn.card.phase,full_estimate=bool(evidence))
                 decision=self.state.gate.evaluate(draft=turn.text,card=turn.card,ledger_facts=turn.facts,private_terms=turn.private_terms)
                 if decision.verdict=="block":
                     self.state.bus.publish(BusEvent(call_id=planned.call_id,module="gate",kind="gate_blocked",payload={"reason":decision.reason}))
@@ -193,7 +199,9 @@ class CallOrchestrator:
                         retry=self.state.gate.evaluate(draft=regenerated.text,card=regenerated.card,ledger_facts=regenerated.facts,private_terms=regenerated.private_terms)
                         if retry.approved is not None:await _speak(session,adapters,retry.approved)
                 elif decision.approved is not None:await _speak(session,adapters,decision.approved)
-            return await adapters.finalize(planned,tuple(transcripts))
+            outcome=await adapters.finalize(planned,tuple(transcripts))
+            (fsm or NegotiationFSM()).finish()
+            return outcome
         return run
 
 
@@ -219,11 +227,14 @@ def load_vertical(name:str="moving")->tuple[dict[str,Any],RuntimeConfig]:
     raw=yaml.safe_load((CONFIG_ROOT/f"{name}.yaml").read_text());compat=str(raw.get("contract_compatibility",{}).get("profile",""))
     if compat!="moving-v1":raise ValueError(f"vertical {name} is not compatible with moving-v1 contracts")
     r=raw["runtime"]
-    return raw,RuntimeConfig(str(raw["vertical"]),compat,bool(r["live_enabled"]),bool(r["sim_enabled"]),bool(r["tts_cache_enabled"]),bool(r["recording_fallback_enabled"]),float(r["stt_watchdog_s"]),float(r["prewarm_timeout_s"]),FIXTURE_ROOT/str(r["recording_fixture"]))
+    live_override=os.getenv("NEGOTIATOR_LIVE_ENABLED")
+    live_enabled=bool(r["live_enabled"]) if live_override is None else live_override.strip().casefold() in {"1","true","yes","on"}
+    return raw,RuntimeConfig(str(raw["vertical"]),compat,live_enabled,bool(r["sim_enabled"]),bool(r["tts_cache_enabled"]),bool(r["recording_fallback_enabled"]),float(r["stt_watchdog_s"]),float(r["prewarm_timeout_s"]),FIXTURE_ROOT/str(r["recording_fixture"]))
 
 def compose(*,vertical:str="moving",journal_path:str|Path|None=None,hooks:Mapping[str,ModeHook]|None=None)->Composition:
     raw,config=load_vertical(vertical);bus=EventBus();journal=Journal(journal_path or Path(".runtime/journal.jsonl"));journal.attach(bus)
-    return Composition(config,raw,bus,journal,DegradationRouter(config,hooks),HonestyGate(stall_phrases=raw["voss"]["stalls"]))
+    stt_config=DeepgramConfig(watchdog_s=config.stt_watchdog_s)
+    return Composition(config,raw,bus,journal,DegradationRouter(config,hooks),HonestyGate(stall_phrases=raw["voss"]["stalls"]),stt_config)
 
 def create_api(composition:Composition|None=None,*,dashboard_token:str|None=None,twilio_validator:TwilioSignatureValidator|None=None,
                allowed_origins:Iterable[str]|None=None,orchestrator:CallOrchestrator|None=None,
@@ -236,10 +247,14 @@ def create_api(composition:Composition|None=None,*,dashboard_token:str|None=None
     globals()["WebSocket"] = WebSocket
     state=composition or compose(vertical=os.getenv("NEGOTIATOR_VERTICAL","moving"));token=dashboard_token or os.getenv("DASHBOARD_BEARER_TOKEN")
     if not token:raise ValueError("DASHBOARD_BEARER_TOKEN is required")
-    validator=twilio_validator or TwilioSignatureValidator(os.getenv("TWILIO_AUTH_TOKEN",""))
-    configured_origins={item.strip() for item in os.getenv("DASHBOARD_ALLOWED_ORIGINS","").split(",") if item.strip()}
-    origins=set(allowed_origins or configured_origins or {"http://localhost:3000","http://127.0.0.1:3000"});rate:dict[str,deque[float]]={}
     live_required=state.config.live_enabled if enable_twilio is None else enable_twilio
+    twilio_token=os.getenv("TWILIO_AUTH_TOKEN","")
+    validator=twilio_validator or (TwilioSignatureValidator(twilio_token) if twilio_token else None)
+    if live_required and validator is None:raise ValueError("TWILIO_AUTH_TOKEN is required in live mode")
+    configured_origins={item.strip() for item in os.getenv("DASHBOARD_ALLOWED_ORIGINS","").split(",") if item.strip()}
+    using_default_origins=allowed_origins is None and not configured_origins
+    origins=set(allowed_origins or configured_origins or {"http://localhost:3000","http://127.0.0.1:3000"});rate:dict[str,deque[float]]={}
+    if using_default_origins:logging.getLogger(__name__).warning("DASHBOARD_ALLOWED_ORIGINS is not configured; localhost-only defaults are active")
     if live_required and not (orchestrator and live_adapters_factory and (pending_twilio_calls or planned_call_resolver)):raise ValueError("live Twilio requires orchestrator, LiveAdapters factory, and pending-call registry or PlannedCall resolver")
     canonical=(public_base_url or os.getenv("PUBLIC_BASE_URL","")).rstrip("/")
     if live_required and not canonical.startswith("https://"):raise ValueError("PUBLIC_BASE_URL must be canonical HTTPS in live mode")
@@ -253,7 +268,7 @@ def create_api(composition:Composition|None=None,*,dashboard_token:str|None=None
         if not hmac.compare_digest(supplied,token):raise HTTPException(401,"unauthorized")
     def origin(headers:Mapping[str,str])->None:
         value=headers.get("origin")
-        if value and value not in origins:raise HTTPException(403,"origin denied")
+        if not value or value not in origins:raise HTTPException(403,"origin denied")
     def issue_ticket()->str:
         payload=f"journal:{int(time.time())+30}";signature=hmac.new(token.encode(),payload.encode(),hashlib.sha256).digest()
         return base64.urlsafe_b64encode(payload.encode()+b"."+signature).decode().rstrip("=")
@@ -275,7 +290,7 @@ def create_api(composition:Composition|None=None,*,dashboard_token:str|None=None
     @api.websocket("/ws/journal")
     async def journal_socket(websocket:WebSocket)->None:
         try:
-            if not valid_ticket(str(websocket.query_params.get("ticket") or "")) or (websocket.headers.get("origin") and websocket.headers.get("origin") not in origins):return await websocket.close(code=4401)
+            if not valid_ticket(str(websocket.query_params.get("ticket") or "")) or websocket.headers.get("origin") not in origins:return await websocket.close(code=4401)
             after=max(0,int(websocket.query_params.get("after_seq","0")));await websocket.accept();queue:asyncio.Queue[None]=asyncio.Queue(maxsize=128);loop=asyncio.get_running_loop()
             def push(event:BusEvent)->None:
                 def put()->None:
@@ -313,6 +328,7 @@ def create_api(composition:Composition|None=None,*,dashboard_token:str|None=None
     @api.websocket("/ws/twilio")
     async def twilio_socket(websocket:WebSocket)->None:
         if not live_required:return await websocket.close(code=4403)
+        assert validator is not None
         signature=websocket.headers.get("x-twilio-signature")
         signed_url=(canonical.replace("https://","wss://")+"/ws/twilio") if canonical else str(websocket.url)
         if canonical and websocket.url.query:signed_url+=f"?{websocket.url.query}"
@@ -334,6 +350,7 @@ def create_api(composition:Composition|None=None,*,dashboard_token:str|None=None
             await orchestrator.run_call(planned,(),{"live":orchestrator.make_live_runner(transport,adapters)})
     @api.post("/api/twilio/recording")
     async def recording_callback(request:Request)->dict[str,Any]:
+        if validator is None:raise HTTPException(503,"Twilio callbacks are not configured")
         body=(await request.body()).decode();params=dict(parse_qsl(body));signature=request.headers.get("x-twilio-signature")
         signed_url=(canonical+"/api/twilio/recording") if canonical else str(request.url)
         if not validator.validate(signed_url,signature,params):raise HTTPException(401,"invalid Twilio signature")
@@ -352,7 +369,7 @@ def offline_smoke()->dict[str,Any]:
     with tempfile.TemporaryDirectory(prefix="negotiator-smoke-") as directory:
         runtime=compose(journal_path=Path(directory)/"smoke.jsonl",hooks={"live":lambda:False,"sim":lambda:True})
         orchestrator=CallOrchestrator(runtime);orchestrator.runners["sim"]=orchestrator._recorded_runner
-        businesses=[{"name":record.outcome.mover_id,"phone":f"offline-{index}"} for index,record in enumerate(load_records(FIXTURE_ROOT/"three_calls.json"),1)]
+        businesses=[{"name":record.outcome.mover_id,"phone":f"+1555000000{index}"} for index,record in enumerate(load_records(FIXTURE_ROOT/"three_calls.json"),1)]
         outcomes=asyncio.run(orchestrator.run_plan(businesses));mode=runtime.journal.replay()[-1].payload["mode"]
         event=runtime.whisper("call-3-pressure_closer","say we have a $3,000 quote");records=load_records(FIXTURE_ROOT/"three_calls.json")
         report=build_report(records,benchmark_low=runtime.vertical_config["benchmarks"]["low"],fee_names={int(k):v for k,v in runtime.vertical_config["taxonomy"]["fee_codes"].items()})

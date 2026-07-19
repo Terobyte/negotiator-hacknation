@@ -163,6 +163,7 @@ class TwilioFrameSerializer:
         seq = self._advance_sequence(message)
         if event == "media":
             media = message.get("media") or {}; chunk=int(media.get("chunk",0)); timestamp=int(media.get("timestamp",-1))
+            if str(media.get("track") or "") != "inbound_track": raise ValueError("media must identify inbound_track")
             if chunk != self.last_chunk+1 or timestamp < self.last_timestamp: raise ValueError("media chunk must advance by one and timestamp be monotonic")
             self.last_chunk, self.last_timestamp = chunk, timestamp
             payload=base64.b64decode(media.get("payload") or "",validate=True)
@@ -179,7 +180,8 @@ class TwilioFrameSerializer:
             return dict(message)
         if event == "stop":
             if str((message.get("stop") or {}).get("callSid") or "")!=self.call_sid: raise ValueError("stop call SID mismatch")
-            self.pending_marks.clear();self.state=Lifecycle.STOPPED;return dict(message)
+            self.pending_marks.clear();self.last_sequence=0;self.last_chunk=0;self.last_timestamp=-1
+            self.stream_sid=None;self.call_sid=None;self.state=Lifecycle.STOPPED;return dict(message)
         raise ValueError(f"unsupported Twilio event: {event!r}")
 
     def media(self, stream_sid: str, payload: bytes) -> str:

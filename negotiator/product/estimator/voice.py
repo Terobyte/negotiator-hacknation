@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -208,19 +210,25 @@ def submit_job_spec(payload: Mapping[str, Any], store: JobSpecStore) -> Submissi
     return store.put(conversation_id, spec)
 
 
-def create_router(store_path: str | Path):
+def create_router(store_path: str | Path, *, webhook_secret: str | None = None):
     """Create a FastAPI router lazily; importing estimator never requires FastAPI."""
 
     try:
-        from fastapi import APIRouter, HTTPException
+        from fastapi import APIRouter, Header, HTTPException
     except ImportError as exc:  # pragma: no cover - depends on optional deployment extra
         raise RuntimeError("FastAPI is optional; install it to create the webhook router") from exc
 
     router = APIRouter()
     store = JobSpecStore(store_path)
+    secret = webhook_secret or os.getenv("ELEVENLABS_WEBHOOK_SECRET", "")
+    if not secret:
+        raise ValueError("ELEVENLABS_WEBHOOK_SECRET is required")
 
     @router.post("/webhooks/elevenlabs/submit_job_spec")
-    def webhook(payload: dict[str, Any]) -> dict[str, Any]:
+    def webhook(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
+        supplied = (authorization or "").removeprefix("Bearer ")
+        if not hmac.compare_digest(supplied, secret):
+            raise HTTPException(status_code=401, detail="invalid webhook credentials")
         try:
             return submit_job_spec(payload, store).as_response()
         except ConfirmationRequired as exc:

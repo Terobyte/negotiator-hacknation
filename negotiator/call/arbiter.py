@@ -37,22 +37,29 @@ class Arbiter:
         self.turn = Turn.SILENCE
         self.pause_until = 0.0
         self.interruptions = 0
+        self.agent_active = False
+        self.counterparty_active = False
 
     def apply(self, event: VadEvent) -> Turn:
         if event.kind is VadKind.COUNTERPARTY_STARTED:
+            self.counterparty_active = True
             if self.turn is Turn.AGENT:
                 self.interruptions += 1
             self.turn = Turn.COUNTERPARTY
         elif event.kind is VadKind.COUNTERPARTY_STOPPED:
-            self.turn = Turn.SILENCE
+            self.counterparty_active = False
+            self.turn = Turn.AGENT if self.agent_active else Turn.SILENCE
         elif event.kind is VadKind.AGENT_STARTED:
             if event.at < self.pause_until or self.turn is Turn.COUNTERPARTY:
                 return self.turn
+            self.agent_active = True
             self.turn = Turn.AGENT
         elif event.kind is VadKind.AGENT_STOPPED:
-            self.turn = Turn.SILENCE
+            self.agent_active = False
+            self.turn = Turn.COUNTERPARTY if self.counterparty_active else Turn.SILENCE
         elif event.kind is VadKind.TACTICAL_PAUSE:
             self.pause_until = max(self.pause_until, event.at + event.duration)
+            self.agent_active = False
             self.turn = Turn.SILENCE
         return self.turn
 

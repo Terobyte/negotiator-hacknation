@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
+import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -19,6 +21,8 @@ from negotiator.core.contracts import (
 
 
 CALL_ORDER = ("lowball_broker", "rushed_dispatcher", "pressure_closer")
+LOGGER = logging.getLogger(__name__)
+_E164_RE = re.compile(r"^\+[1-9]\d{7,14}$")
 class BusinessLike(Protocol):
     name: str
     phone: str
@@ -58,6 +62,9 @@ def build_call_plan(
         mapped = number_map.get(role) or number_map.get(str(index)) or number_map.get(phone)
         if number_map and not mapped:
             raise ValueError(f"demo_number_map has no number for position {index} ({role})")
+        dial_phone = str(mapped or phone).strip()
+        if not _E164_RE.fullmatch(dial_phone):
+            raise ValueError(f"dial phone must use E.164 format: {dial_phone!r}")
         calls.append(
             PlannedCall(
                 call_id=f"call-{index}-{role}",
@@ -65,7 +72,7 @@ def build_call_plan(
                 mover_id=name,
                 display_name=name,
                 source_phone=phone,
-                dial_phone=mapped or phone,
+                dial_phone=dial_phone,
                 demo=bool(mapped),
             )
         )
@@ -85,6 +92,7 @@ def supervise_call(
         result = runner()
         outcome = _coerce_outcome(result, planned)
     except Exception:
+        LOGGER.exception("call runner failed for %s", planned.call_id)
         outcome = None
     finally:
         if outcome is None:
@@ -108,6 +116,7 @@ async def supervise_call_async(
             result = await asyncio.wait_for(result, timeout) if timeout is not None else await result
         outcome = _coerce_outcome(result, planned)
     except Exception:
+        LOGGER.exception("async call runner failed for %s", planned.call_id)
         outcome = None
     finally:
         if outcome is None:
@@ -229,6 +238,7 @@ def _recover_outcome(
     try:
         return outcome_from_journal(planned, _read_tail(reader, planned.call_id))
     except Exception:
+        LOGGER.exception("journal recovery failed for %s", planned.call_id)
         return CallOutcome(
             call_id=planned.call_id,
             mover_id=planned.mover_id,

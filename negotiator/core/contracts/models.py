@@ -72,7 +72,7 @@ class CallCard(Contract):
     @classmethod
     def unique_fact_ids(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         if len(value) != len(set(value)) or any(not item for item in value):
-            raise ValueError("allowed_fact_ids must be non-empty and unique")
+            raise ValueError("allowed_fact_ids entries must be non-empty strings and unique")
         return value
 
 
@@ -130,10 +130,40 @@ class LedgerFactKind(StrEnum):
 class LedgerFact(Contract):
     id: str = Field(min_length=1)
     kind: LedgerFactKind
-    value: Any
+    value: dict[str, Any] | str | bool
     source: Source
     call_id: str = Field(min_length=1)
     ts: datetime
+
+    @model_validator(mode="after")
+    def value_matches_kind(self) -> LedgerFact:
+        value = self.value
+        if self.kind in {LedgerFactKind.QUOTE, LedgerFactKind.BENCHMARK, LedgerFactKind.JOBSPEC} and not isinstance(value, dict):
+            raise ValueError(f"{self.kind.value} facts require a structured object value")
+        if self.kind is LedgerFactKind.QUOTE:
+            _positive_number(value.get("total"), "quote.total")
+        elif self.kind is LedgerFactKind.BENCHMARK:
+            _positive_number(value.get("low"), "benchmark.low")
+            if value.get("high") is not None:
+                _positive_number(value["high"], "benchmark.high")
+        elif self.kind is LedgerFactKind.JOBSPEC and not value:
+            raise ValueError("jobspec facts require a non-empty object")
+        elif self.kind is LedgerFactKind.VERIFICATION and not isinstance(value, (dict, bool)):
+            raise ValueError("verification facts require a boolean or structured object")
+        elif self.kind is LedgerFactKind.DIRECTIVE:
+            if not isinstance(value, (dict, str)) or not value:
+                raise ValueError("directive facts require non-empty text or a structured object")
+        return self
+
+
+def _positive_number(value: Any, label: str) -> Decimal:
+    try:
+        parsed = Decimal(str(value))
+    except (ArithmeticError, ValueError, TypeError) as exc:
+        raise ValueError(f"{label} must be a finite positive number") from exc
+    if not parsed.is_finite() or parsed <= 0:
+        raise ValueError(f"{label} must be a finite positive number")
+    return parsed
 
 
 class LineItem(Contract):

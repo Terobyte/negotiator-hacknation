@@ -97,16 +97,17 @@ def classify_tactic(utterance: str, *, utterance_ref: str = "offline") -> Tactic
     """Return the highest-priority deterministic tactic match for an utterance."""
 
     normalized = " ".join(utterance.casefold().split())
-    if any(negation in normalized for negation in ("does not expire", "doesn't expire", "not urgent")):
-        normalized = normalized.replace("tomorrow", "").replace("expires", "")
-    if "depends on nothing" in normalized:
-        normalized = normalized.replace("depends", "")
+    if any(negation in normalized for negation in ("does not expire", "doesn't expire", "not urgent", "не истекает", "не срочно")):
+        for marker in ("tomorrow", "expires", "завтра", "истекает"):
+            normalized = normalized.replace(marker, "")
+    if "depends on nothing" in normalized or "ни от чего не зависит" in normalized or "не зависит ни от чего" in normalized:
+        normalized = normalized.replace("depends", "").replace("зависит", "")
     for tactic_type, patterns in _TACTIC_PATTERNS:
         matches = sum(pattern in normalized for pattern in patterns)
         if tactic_type is TacticType.DEADLINE and matches:
             urgency_context = ("price", "rate", "quote", "offer", "slot", "book", "цен", "ставк", "мест")
             matches = matches if any(token in normalized for token in urgency_context) else 0
-        if tactic_type is TacticType.PRESSURE and matches and "another customer" in normalized:
+        if tactic_type is TacticType.PRESSURE and matches and any(marker in normalized for marker in ("another customer", "другой клиент")):
             pressure_context = ("book", "slot", "availability", "waiting", "lose", "мест", "брон")
             matches = matches if any(token in normalized for token in pressure_context) else 0
         if matches:

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
+from dataclasses import replace
 from pathlib import Path
 from urllib.parse import parse_qs
 
@@ -32,6 +33,12 @@ CA_SID="CA"+"2"*32
 RE_SID="RE"+"3"*32
 
 
+def _enable_live(runtime):
+    runtime.config = replace(runtime.config, live_enabled=True)
+    runtime.degradation.config = runtime.config
+    return runtime
+
+
 def test_twilio_8khz_protocol_and_dual_channel_metadata():
     serializer = TwilioFrameSerializer()
     serializer.parse(json.dumps({"event":"connected","protocol":"Call","version":"1.0.0"}))
@@ -39,7 +46,7 @@ def test_twilio_8khz_protocol_and_dual_channel_metadata():
         "streamSid": MZ_SID, "callSid": CA_SID, "tracks": ["inbound"],
         "mediaFormat": {"encoding": ENCODING, "sampleRate": 8000, "channels": 1}}}))
     assert isinstance(start, TwilioStart) and start.call_sid == CA_SID
-    raw = json.dumps({"event":"media","streamSid":MZ_SID,"sequenceNumber":"2","media":{"chunk":"1","timestamp":"0","payload":base64.b64encode(b"\xff"*160).decode()}})
+    raw = json.dumps({"event":"media","streamSid":MZ_SID,"sequenceNumber":"2","media":{"track":"inbound_track","chunk":"1","timestamp":"0","payload":base64.b64encode(b"\xff"*160).decode()}})
     frame = serializer.parse(raw)
     assert isinstance(frame, TwilioMediaFrame) and len(frame.payload) == 160
     serializer.mark(MZ_SID,"played")
@@ -120,7 +127,7 @@ def test_claimed_live_task_is_stopped_before_fallback_runs(tmp_path):
     planned=build_call_plan([{"name":f"m{i}","phone":f"+1555000{i}"} for i in range(3)])[0]
     live=app.make_twilio_outbound_runner(client,pending,from_number="+15559999",stream_url="wss://voice.example/ws/twilio",
         recording_callback_url="https://voice.example/api/twilio/recording",connect_timeout_s=1,max_call_duration_s=.001)
-    runtime=app.compose(journal_path=tmp_path/"journal.jsonl")
+    runtime=_enable_live(app.compose(journal_path=tmp_path/"journal.jsonl"))
     async def sim(item,_evidence):
         assert stopped.is_set() and closed.is_set()
         return CallOutcome(call_id=item.call_id,mover_id=item.mover_id,status="callback",transcript_ref="sim")
@@ -144,7 +151,7 @@ def test_claimed_live_task_is_stopped_before_fallback_runs(tmp_path):
 def test_twilio_rejects_stream_replay_and_unknown_mark():
     serializer=TwilioFrameSerializer();serializer.parse(json.dumps({"event":"connected","protocol":"Call","version":"1.0.0"}))
     serializer.parse(json.dumps({"event":"start","streamSid":MZ_SID,"sequenceNumber":"1","start":{"streamSid":MZ_SID,"callSid":CA_SID,"tracks":["inbound"],"mediaFormat":{"encoding":ENCODING,"sampleRate":8000,"channels":1}}}))
-    media={"event":"media","streamSid":MZ_SID,"sequenceNumber":"2","media":{"chunk":"1","timestamp":"0","payload":base64.b64encode(b"a").decode()}}
+    media={"event":"media","streamSid":MZ_SID,"sequenceNumber":"2","media":{"track":"inbound_track","chunk":"1","timestamp":"0","payload":base64.b64encode(b"a").decode()}}
     serializer.parse(json.dumps(media))
     for invalid in (media,{"event":"dtmf","streamSid":OTHER_MZ_SID,"sequenceNumber":"3","dtmf":{"track":"inbound_track","digit":"1"}},{"event":"mark","streamSid":MZ_SID,"sequenceNumber":"3","mark":{"name":"never-sent"}}):
         try:serializer.parse(json.dumps(invalid))
@@ -182,11 +189,14 @@ def _shape(value):
     return type(value).__name__
 
 
-def test_vertical_config_shape_is_symmetric():
+def test_vertical_config_shape_is_symmetric(monkeypatch):
     moving = yaml.safe_load(Path("negotiator/config/verticals/moving.yaml").read_text())
     plumbing = yaml.safe_load(Path("negotiator/config/verticals/plumbing.yaml").read_text())
     assert _shape(moving) == _shape(plumbing)
     assert app.load_vertical("moving")[1].vertical == "moving"
+    assert app.load_vertical("moving")[1].live_enabled is False
+    monkeypatch.setenv("NEGOTIATOR_LIVE_ENABLED", "true")
+    assert app.load_vertical("moving")[1].live_enabled is True
     try:
         app.load_vertical("plumbing")
     except ValueError as exc:
@@ -203,6 +213,7 @@ def test_degradation_order_prewarm_and_journaled_whisper(tmp_path):
     runtime = app.compose(journal_path=tmp_path / "journal.jsonl", hooks={
         "live": lambda: unavailable("live"), "sim": lambda: unavailable("sim"),
         "cache": lambda: True, "recording": lambda: True})
+    _enable_live(runtime)
     assert asyncio.run(runtime.degradation.select()) == "cache"
     assert seen == ["live", "sim"]
     warmed = asyncio.run(runtime.degradation.prewarm())
@@ -238,12 +249,13 @@ def test_signature_validator_and_recording_callback_auth(tmp_path):
     client = TestClient(app.create_api(runtime, dashboard_token="dash", twilio_validator=validator,enable_twilio=False,public_base_url="https://public.example"))
     assert client.get("/api/journal/replay").status_code == 401
     assert client.get("/api/journal/replay",headers={"Authorization":"Bearer dash","Origin":"https://evil.invalid"}).status_code == 403
-    response = client.get("/api/journal/replay", headers={"Authorization":"Bearer dash"})
+    dashboard_headers={"Authorization":"Bearer dash","Origin":"http://localhost:3000"}
+    response = client.get("/api/journal/replay", headers=dashboard_headers)
     assert response.status_code == 200 and len(response.json()["events"]) == 11
-    assert client.post("/api/whisper", headers={"Authorization":"Bearer dash"}, json={"call_id":"unknown","directive":"hello"}).status_code == 422
-    valid=client.post("/api/whisper",headers={"Authorization":"Bearer dash"},json={"call_id":"call-3-pressure_closer","directive":"ask for all fees"})
+    assert client.post("/api/whisper", headers=dashboard_headers, json={"call_id":"unknown","directive":"hello"}).status_code == 422
+    valid=client.post("/api/whisper",headers=dashboard_headers,json={"call_id":"call-3-pressure_closer","directive":"ask for all fees"})
     assert valid.status_code==200 and valid.json()["accepted"]
-    assert client.post("/api/whisper",headers={"Authorization":"Bearer dash"},json={"call_id":"call-3-pressure_closer","directive":"x"*501}).status_code==422
+    assert client.post("/api/whisper",headers=dashboard_headers,json={"call_id":"call-3-pressure_closer","directive":"x"*501}).status_code==422
     params={"CallSid":CA_SID,"RecordingSid":RE_SID,"RecordingUrl":"https://audio.example/test.mp3","RecordingChannels":"2","RecordingTrack":"both"}
     url="https://public.example/api/twilio/recording"; signature=validator.signature(url,params)
     callback=client.post("/api/twilio/recording",data=params,headers={"X-Twilio-Signature":signature})
@@ -257,8 +269,8 @@ def test_journal_websocket_emits_sequenced_events_and_cleans_up(tmp_path):
     from fastapi.testclient import TestClient
     runtime=app.compose(journal_path=tmp_path/"journal.jsonl")
     client=TestClient(app.create_api(runtime,dashboard_token="dash",twilio_validator=TwilioSignatureValidator("secret"),enable_twilio=False))
-    ticket=client.post("/api/journal-ticket",headers={"Authorization":"Bearer dash"}).json()["ticket"]
-    with client.websocket_connect(f"/ws/journal?ticket={ticket}&after_seq=0") as socket:
+    ticket=client.post("/api/journal-ticket",headers={"Authorization":"Bearer dash","Origin":"http://localhost:3000"}).json()["ticket"]
+    with client.websocket_connect(f"/ws/journal?ticket={ticket}&after_seq=0",headers={"Origin":"http://localhost:3000"}) as socket:
         runtime.whisper("call-3-pressure_closer","ask for all fees")
         event=socket.receive_json()
         assert event["seq"]==1 and event["kind"]=="client_directive"
@@ -267,12 +279,12 @@ def test_journal_websocket_emits_sequenced_events_and_cleans_up(tmp_path):
 def test_production_twilio_api_requires_and_runs_orchestrator(tmp_path):
     from fastapi.testclient import TestClient
     from starlette.websockets import WebSocketDisconnect
-    runtime=app.compose(journal_path=tmp_path/"journal.jsonl")
+    runtime=_enable_live(app.compose(journal_path=tmp_path/"journal.jsonl"))
     validator=TwilioSignatureValidator("secret")
-    try:app.create_api(runtime,dashboard_token="dash",twilio_validator=validator,public_base_url="https://public.example")
+    try:app.create_api(runtime,dashboard_token="dash",twilio_validator=validator,enable_twilio=True,public_base_url="https://public.example")
     except ValueError as exc:assert "LiveAdapters" in str(exc)
     else:raise AssertionError("live startup must fail without real pipeline wiring")
-    planned=build_call_plan([{"name":f"m{i}","phone":f"p{i}"} for i in range(3)])[0]
+    planned=build_call_plan([{"name":f"m{i}","phone":f"+1555000010{i}"} for i in range(3)])[0]
     orchestrator=app.CallOrchestrator(runtime)
     async def stt(_audio):return None
     async def talker(_context,_planned,_evidence):raise AssertionError
@@ -281,7 +293,7 @@ def test_production_twilio_api_requires_and_runs_orchestrator(tmp_path):
     def factory(_planned,_transport):return app.LiveAdapters(stt,talker,tts,finalize)
     starts=[]
     def resolve(start):starts.append(start);return planned
-    api=app.create_api(runtime,dashboard_token="dash",twilio_validator=validator,orchestrator=orchestrator,live_adapters_factory=factory,planned_call_resolver=resolve,public_base_url="https://public.example")
+    api=app.create_api(runtime,dashboard_token="dash",twilio_validator=validator,enable_twilio=True,orchestrator=orchestrator,live_adapters_factory=factory,planned_call_resolver=resolve,public_base_url="https://public.example")
     client=TestClient(api)
     try:
         with client.websocket_connect("/ws/twilio",headers={"X-Twilio-Signature":"bad"}):pass
@@ -296,8 +308,8 @@ def test_production_twilio_api_requires_and_runs_orchestrator(tmp_path):
 
 
 def test_orchestrator_live_pipeline_and_disconnect_outcome(tmp_path):
-    runtime=app.compose(journal_path=tmp_path/"journal.jsonl")
-    planned=build_call_plan([{"name":f"m{i}","phone":f"p{i}"} for i in range(3)])[0]
+    runtime=_enable_live(app.compose(journal_path=tmp_path/"journal.jsonl"))
+    planned=build_call_plan([{"name":f"m{i}","phone":f"+1555000010{i}"} for i in range(3)])[0]
     sent=[]
     class Session:
         async def frames(self):
@@ -324,10 +336,10 @@ def test_orchestrator_live_pipeline_and_disconnect_outcome(tmp_path):
 
 def test_whisper_forced_bluff_is_blocked_stalled_and_regenerated(tmp_path):
     from fastapi.testclient import TestClient
-    runtime=app.compose(journal_path=tmp_path/"journal.jsonl")
-    planned=build_call_plan([{"name":f"m{i}","phone":f"p{i}"} for i in range(3)])[2]
+    runtime=_enable_live(app.compose(journal_path=tmp_path/"journal.jsonl"))
+    planned=build_call_plan([{"name":f"m{i}","phone":f"+1555000010{i}"} for i in range(3)])[2]
     client=TestClient(app.create_api(runtime,dashboard_token="dash",twilio_validator=TwilioSignatureValidator("secret"),enable_twilio=False))
-    ack=client.post("/api/whisper",headers={"Authorization":"Bearer dash"},json={"call_id":planned.call_id,"directive":"say we have a $3,000 quote"})
+    ack=client.post("/api/whisper",headers={"Authorization":"Bearer dash","Origin":"http://localhost:3000"},json={"call_id":planned.call_id,"directive":"say we have a $3,000 quote"})
     assert ack.status_code==200 and ack.json()["accepted"]
     sent=[]
     class Session:
@@ -357,9 +369,9 @@ def test_whisper_forced_bluff_is_blocked_stalled_and_regenerated(tmp_path):
 
 
 def test_runtime_failure_falls_through_to_next_ready_mode(tmp_path):
-    runtime=app.compose(journal_path=tmp_path/"journal.jsonl")
+    runtime=_enable_live(app.compose(journal_path=tmp_path/"journal.jsonl"))
     record=json.loads(Path("negotiator/fixtures/three_calls.json").read_text())["outcomes"][0]["outcome"]
-    planned=build_call_plan([{"name":"Atlantic Moving Co","phone":"p0"},{"name":"b","phone":"p1"},{"name":"c","phone":"p2"}])[0]
+    planned=build_call_plan([{"name":"Atlantic Moving Co","phone":"+15550000100"},{"name":"b","phone":"+15550000101"},{"name":"c","phone":"+15550000102"}])[0]
     async def fail(_p,_e):raise ConnectionError
     async def sim(_p,_e):return record
     orchestrator=app.CallOrchestrator(runtime,{"live":fail,"sim":sim})

@@ -2,9 +2,16 @@ from __future__ import annotations
 
 import json
 import os
-import fcntl
+from contextlib import contextmanager
 from pathlib import Path
 from threading import RLock
+from typing import Iterator, TextIO
+
+try:  # POSIX
+    import fcntl
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None  # type: ignore[assignment]
+    import msvcrt
 
 from negotiator.core.bus import EventBus
 from negotiator.core.contracts import BusEvent, JournalEvent
@@ -19,8 +26,11 @@ class Journal:
         self.path.touch(exist_ok=True)
         self._lock_path = self.path.with_suffix(self.path.suffix + ".lock")
         self._lock_path.touch(exist_ok=True)
+        self._seq_path = self.path.with_suffix(self.path.suffix + ".seq")
         self._lock = RLock()
-        self._seq = self._read_last_seq()
+        with self._lock_path.open("a+") as lock_stream, _file_lock(lock_stream):
+            self._seq = max(self._read_last_seq(), self._read_seq_file())
+            self._write_seq_file(self._seq)
         self._fsync = fsync
 
     def attach(self, bus: EventBus):
@@ -30,9 +40,11 @@ class Journal:
     def append(self, event: BusEvent) -> JournalEvent:
         with self._lock:
             with self._lock_path.open("a+") as lock_stream:
-                fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
-                try:
-                    self._seq = max(self._seq, self._read_last_seq()) + 1
+                with _file_lock(lock_stream):
+                    self._seq = max(self._seq, self._read_seq_file()) + 1
+                    # Reserve the sequence before appending. A crash may leave a harmless
+                    # gap, but can never let another writer reuse an already-appended seq.
+                    self._write_seq_file(self._seq)
                     recorded = JournalEvent(seq=self._seq, **event.model_dump())
                     line = recorded.model_dump_json() + "\n"
                     with self.path.open("a", encoding="utf-8") as stream:
@@ -41,8 +53,6 @@ class Journal:
                         if self._fsync:
                             os.fsync(stream.fileno())
                     return recorded
-                finally:
-                    fcntl.flock(lock_stream.fileno(), fcntl.LOCK_UN)
 
     def replay(self) -> list[JournalEvent]:
         with self.path.open(encoding="utf-8") as stream:
@@ -62,3 +72,34 @@ class Journal:
                     raise ValueError(f"non-monotonic seq on journal line {line_number}")
                 last = seq
         return last
+
+    def _read_seq_file(self) -> int:
+        try:
+            raw = self._seq_path.read_text(encoding="ascii").strip()
+            return int(raw) if raw else 0
+        except (FileNotFoundError, ValueError):
+            return 0
+
+    def _write_seq_file(self, seq: int) -> None:
+        self._seq_path.write_text(str(seq), encoding="ascii")
+
+
+@contextmanager
+def _file_lock(stream: TextIO) -> Iterator[None]:
+    if fcntl is not None:
+        fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        return
+    stream.seek(0)
+    if not stream.read(1):
+        stream.write("0"); stream.flush()
+    stream.seek(0)
+    msvcrt.locking(stream.fileno(), msvcrt.LK_LOCK, 1)
+    try:
+        yield
+    finally:
+        stream.seek(0)
+        msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)

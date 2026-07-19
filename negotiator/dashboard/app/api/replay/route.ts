@@ -6,12 +6,12 @@ function backend() {
 }
 
 export async function GET(request: Request) {
-  const denied = authorizeWorkspaceRequest(request);
+  const denied = await authorizeWorkspaceRequest(request);
   if (denied) return denied;
   const {url, token} = backend();
   const incoming = new URL(request.url);
   const source = incoming.searchParams.get("source") === "journal" ? "journal" : "full_run.jsonl";
-  const response = await fetch(`${url}/api/journal/replay?fixture=${encodeURIComponent(source)}&after_seq=${encodeURIComponent(incoming.searchParams.get("after_seq") ?? "0")}`, {headers:{Authorization:`Bearer ${token}`}});
+  const response = await fetch(`${url}/api/journal/replay?fixture=${encodeURIComponent(source)}&after_seq=${encodeURIComponent(incoming.searchParams.get("after_seq") ?? "0")}`, {headers:{Authorization:`Bearer ${token}`,Origin:incoming.origin}});
   return new Response(response.body, {status:response.status,headers:{"Content-Type":"application/json","Cache-Control":"no-store"}});
 }
 import { authorizeWorkspaceRequest } from "../_auth";

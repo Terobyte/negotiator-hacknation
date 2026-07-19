@@ -24,7 +24,7 @@ class ElevenLabsTTSConfig:
     voice_id: str
     api_key: str | None = None
     model_id: str = "eleven_flash_v2_5"
-    output_format: str = "pcm_16000"
+    output_format: str = "ulaw_8000"
     base_url: str = "https://api.elevenlabs.io"
     optimize_streaming_latency: int = 3
     timeout_s: float = 10.0
@@ -115,6 +115,8 @@ class ElevenLabsTTS:
             raise RuntimeError("ELEVENLABS_API_KEY is not configured")
 
         audio = deterministic_pcm(utterance.text, sample_rate=_sample_rate(self.config.output_format))
+        if self.config.output_format.startswith("ulaw_"):
+            audio = _pcm16_to_mulaw(audio)
         return SynthesisResult(audio, _content_type(self.config.output_format), "deterministic", key)
 
     def _read_cache(self, key: str) -> bytes | None:
@@ -165,10 +167,29 @@ def _http_transport(url: str, headers: Mapping[str, str], body: bytes, timeout: 
 
 def _sample_rate(output_format: str) -> int:
     try:
-        return int(output_format.removeprefix("pcm_")) if output_format.startswith("pcm_") else 16_000
+        if output_format.startswith(("pcm_", "ulaw_")):
+            return int(output_format.split("_", 1)[1])
+        return 16_000
     except ValueError:
         return 16_000
 
 
 def _content_type(output_format: str) -> str:
-    return "audio/pcm" if output_format.startswith("pcm_") else "audio/mpeg"
+    if output_format.startswith("pcm_"):
+        return "audio/pcm"
+    if output_format.startswith("ulaw_"):
+        return "audio/basic"
+    return "audio/mpeg"
+
+
+def _pcm16_to_mulaw(pcm: bytes) -> bytes:
+    """Encode little-endian signed PCM16 as G.711 mu-law without audioop."""
+
+    result = bytearray()
+    for (sample,) in struct.iter_unpack("<h", pcm):
+        sign = 0x80 if sample < 0 else 0
+        magnitude = min(32635, abs(sample)) + 132
+        exponent = max(0, magnitude.bit_length() - 8)
+        mantissa = (magnitude >> (exponent + 3)) & 0x0F
+        result.append(~(sign | (exponent << 4) | mantissa) & 0xFF)
+    return bytes(result)

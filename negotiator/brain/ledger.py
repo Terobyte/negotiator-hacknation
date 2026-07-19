@@ -134,8 +134,11 @@ class Ledger:
 
     def _store(self, fact: LedgerFact) -> LedgerFact:
         existing = self._facts.get(fact.id)
-        if existing is not None and existing != fact:
-            raise DuplicateFact(f"ledger fact id already exists: {fact.id}")
+        if existing is not None:
+            meaningful = ("kind", "value", "source", "call_id")
+            if any(getattr(existing, name) != getattr(fact, name) for name in meaningful):
+                raise DuplicateFact(f"ledger fact id already exists: {fact.id}")
+            return existing
         self._facts[fact.id] = fact
         return fact
 

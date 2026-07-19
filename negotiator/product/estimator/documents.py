@@ -18,8 +18,10 @@ class DocumentConfirmationRequired(ValueError):
     pass
 
 
-def parse_key_value_text(text: str) -> dict[str, Any]:
-    """Parse a frozen extractor format; unknown keys are ignored, never inferred."""
+def parse_key_value_text(
+    text: str, *, trusted_private_fields: bool = False
+) -> dict[str, Any]:
+    """Parse frozen extractor output without trusting private fields by default."""
 
     result: dict[str, Any] = {}
     for raw_line in text.splitlines():
@@ -28,6 +30,8 @@ def parse_key_value_text(text: str) -> dict[str, Any]:
             continue
         key, raw_value = (part.strip() for part in line.split(":", 1))
         if key not in JobSpec.model_fields:
+            continue
+        if key == "budget_ceiling" and not trusted_private_fields:
             continue
         try:
             result[key] = json.loads(raw_value)
@@ -52,9 +56,11 @@ def load_document(path: str | Path, *, pdf_extractor: Callable[[Path], str] | No
             text = companion.read_text(encoding="utf-8")
         else:
             text = pdf_extractor(source)
-    else:
+    elif suffix in {".txt", ".md"}:
         text = source.read_text(encoding="utf-8")
-    return parse_key_value_text(text)
+    else:
+        raise ValueError(f"unsupported document extension: {suffix or '<none>'}")
+    return parse_key_value_text(text, trusted_private_fields=True)
 
 
 def document_to_job_spec(
@@ -64,8 +70,8 @@ def document_to_job_spec(
     pdf_extractor: Callable[[Path], str] | None = None,
 ) -> JobSpec:
     body = dict(document if isinstance(document, Mapping) else load_document(document, pdf_extractor=pdf_extractor))
-    body.pop("confirmed", None)  # Extracted content can never authorize its own submission.
-    if confirmed is not True:
+    extracted_confirmation = body.pop("confirmed", None)
+    if confirmed is not True or extracted_confirmation is not True:
         raise DocumentConfirmationRequired("document fields require one explicit customer confirmation")
     missing = sorted(_REQUIRED_INTAKE_FIELDS - body.keys())
     if missing:

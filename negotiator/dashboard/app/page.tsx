@@ -7,12 +7,6 @@ type JournalEvent = {
   payload: Record<string, unknown>; refs: string[]; ts: string;
 };
 
-const calls = [
-  ["01", "Atlantic Moving Co", "lowball broker", "$2,079", "RF-A · RF-B · RF-C"],
-  ["02", "Hudson Van Lines", "rushed dispatcher", "$4,100", "14 fees challenged"],
-  ["03", "Empire Relocation", "pressure closer", "$3,900", "$700 concession"],
-];
-
 const seedEvents: JournalEvent[] = [
   {seq:1,call_id:"call-1-lowball_broker",module:"talker",kind:"transcript",payload:{speaker:"agent",text:"Hi, I'm an AI assistant calling on behalf of a client.",phase:"OPENING"},refs:[],ts:"2026-07-18T18:30:00Z"},
   {seq:3,call_id:"call-1-lowball_broker",module:"report",kind:"red_flag",payload:{code:"RF-A",text:"Sight-unseen quote is 35% below benchmark",in_conversation:true},refs:["tx-lowball:42-51"],ts:"2026-07-18T18:30:18Z"},
@@ -22,7 +16,10 @@ const seedEvents: JournalEvent[] = [
   {seq:10,call_id:"call-3-pressure_closer",module:"opponent",kind:"price",payload:{mover:"Empire Relocation",price:3900,previous:4600,floor:3820,band:[3700,4050]},refs:["quote:call-2-rushed_dispatcher"],ts:"2026-07-18T18:32:26Z"},
 ];
 
-function money(value: unknown) { return `$${Number(value).toLocaleString("en-US")}`; }
+function money(value: unknown) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? `$${amount.toLocaleString("en-US")}` : "—";
+}
 
 export default function Home() {
   const [liveEvents, setLiveEvents] = useState<JournalEvent[]>(seedEvents.slice(0, 3));
@@ -32,6 +29,7 @@ export default function Home() {
   const [playing, setPlaying] = useState(false);
   const [directive, setDirective] = useState("say we have a $3,000 quote");
   const [pendingDirective, setPendingDirective] = useState<string | null>(null);
+  const [selectedCallId, setSelectedCallId] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState("fixture ready");
 
   useEffect(() => {
@@ -92,11 +90,21 @@ export default function Home() {
   }, [playing, replayIndex, replaySource.length]);
 
   const events = playing ? replaySource.slice(0, replayIndex) : liveEvents;
+  const callIds = Array.from(new Set(events.map(event => event.call_id).filter(Boolean)));
+  const activeCallId = selectedCallId && callIds.includes(selectedCallId) ? selectedCallId : callIds.at(0) ?? null;
+  const calls = callIds.map((callId, index) => {
+    const rows = events.filter(event => event.call_id === callId);
+    const latestPrice = [...rows].reverse().find(event => event.kind === "price")?.payload.price;
+    const mover = [...rows].reverse().find(event => typeof event.payload.mover === "string")?.payload.mover;
+    const flags = rows.filter(event => event.kind === "red_flag").length;
+    return {callId, order:String(index + 1).padStart(2,"0"), mover:String(mover ?? callId.replace(/^call-\d+-/, "").replaceAll("_", " ")), price:money(latestPrice), detail:flags ? `${flags} red flag${flags === 1 ? "" : "s"}` : `${rows.length} events`};
+  });
+  const visibleEvents = activeCallId ? events.filter(event => event.call_id === activeCallId) : events;
 
-  const transcripts = events.filter(e => e.kind === "transcript");
-  const ledger = events.filter(e => e.kind === "ledger_fact");
-  const price = [...events].reverse().find(e => e.kind === "price");
-  const blocked = events.filter(e => e.kind === "gate_blocked").length;
+  const transcripts = visibleEvents.filter(e => e.kind === "transcript");
+  const ledger = visibleEvents.filter(e => e.kind === "ledger_fact");
+  const price = [...visibleEvents].reverse().find(e => e.kind === "price");
+  const blocked = visibleEvents.filter(e => e.kind === "gate_blocked").length;
   const phase = String(transcripts.at(-1)?.payload.phase ?? "DISCOVERY");
   async function whisper(event: FormEvent) {
     event.preventDefault();
@@ -104,7 +112,8 @@ export default function Home() {
     if (!value || pendingDirective) return;
     setPendingDirective(value);
     try {
-      const response = await fetch(`/api/whisper`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({call_id:"call-3-pressure_closer",directive:value})});
+      if (!activeCallId) throw new Error("select a call before sending a directive");
+      const response = await fetch(`/api/whisper`, {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({call_id:activeCallId,directive:value})});
       const body = await response.json();
       if (!response.ok) throw new Error(body.detail ?? `whisper ${response.status}`);
       setApiStatus("directive acknowledged");
@@ -121,8 +130,8 @@ export default function Home() {
     <section className="hero-grid" aria-label="Negotiation overview">
       <div className="call-stack panel">
         <div className="panel-title"><span>CALL ORDER</span><small>outsider → favorite</small></div>
-        {calls.map((call, index) => <button className={`call ${index===2 ? "active" : ""}`} key={call[0]}>
-          <b>{call[0]}</b><span><strong>{call[1]}</strong><small>{call[2]}</small></span><span className="call-price">{call[3]}<small>{call[4]}</small></span>
+        {calls.map(call => <button onClick={()=>setSelectedCallId(call.callId)} className={`call ${call.callId===activeCallId ? "active" : ""}`} key={call.callId}>
+          <b>{call.order}</b><span><strong>{call.mover}</strong><small>{call.callId}</small></span><span className="call-price">{call.price}<small>{call.detail}</small></span>
         </button>)}
       </div>
 

@@ -5,7 +5,7 @@ contract_compatibility:
   status: compatible
 
 runtime:
-  live_enabled: true
+  live_enabled: false
   sim_enabled: true
   tts_cache_enabled: true
   recording_fallback_enabled: true

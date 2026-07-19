@@ -27,7 +27,8 @@ def test_leverage_requires_complete_estimate():
     assert machine.transition(NegotiationPhase.LEVERAGE, full_estimate=True) is NegotiationPhase.LEVERAGE
 
 
-def test_call_can_only_finish_from_wrap():
-    with pytest.raises(ForbiddenTransition):
-        NegotiationFSM(NegotiationPhase.COMMIT).finish()
-    assert NegotiationFSM(NegotiationPhase.WRAP).finish() is None
+@pytest.mark.parametrize("phase", list(NegotiationPhase))
+def test_call_can_finish_after_hangup_from_any_phase(phase):
+    machine = NegotiationFSM(phase)
+    assert machine.finish() is None
+    assert machine.phase is NegotiationPhase.WRAP

@@ -2,10 +2,12 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from threading import RLock
+import logging
 
 from negotiator.core.contracts import BusEvent
 
 Subscriber = Callable[[BusEvent], None]
+logger = logging.getLogger(__name__)
 
 
 class EventBus:
@@ -36,6 +38,8 @@ class EventBus:
             except Exception as exc:  # complete fan-out, then preserve fail-fast semantics
                 if first_error is None:
                     first_error = exc
+                else:
+                    logger.error("secondary EventBus subscriber failed: %s", exc, exc_info=exc)
         if first_error is not None:
             raise first_error
 

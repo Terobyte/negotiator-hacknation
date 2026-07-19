@@ -24,7 +24,7 @@ class DeepgramConfig:
     endpoint: str = "wss://api.deepgram.com/v1/listen"
     model: str = "nova-2-phonecall"
     language: str = "en-US"
-    encoding: str = "linear16"
+    encoding: str = "mulaw"
     sample_rate: int = 8_000
     channels: int = 1
     interim_results: bool = True
@@ -147,6 +147,15 @@ def decode_deepgram_message(raw: str | bytes) -> Transcript | None:
     if isinstance(raw, bytes):
         raw = raw.decode()
     message = json.loads(raw)
+    if message.get("type") == "UtteranceEnd":
+        return Transcript(
+            text="",
+            is_final=True,
+            speech_final=True,
+            confidence=1.0,
+            start_s=_optional_float(message.get("last_word_end")),
+            duration_s=0.0,
+        )
     if message.get("type") != "Results":
         return None
     channel = message.get("channel", {})

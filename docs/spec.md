@@ -5,25 +5,29 @@
 и без живого звонка.
 
 Решения зафиксированы из [`research.md`](research.md): свой pipecat-стек для контура **переговоров** +
-**ElevenLabs Flash v2.5** TTS (R0.3), STT — **Deepgram nova phonecall** (R1.3),
+**ElevenLabs Flash v2.5** TTS (вендор — R0.3, модель — R1.1/R1.2), STT — **Deepgram nova phonecall** (R1.3),
 **интейк-интервью — ElevenLabs Agents Platform** (§10 п.15, требование брифа модуль 01),
 counter-агенты — **ElevenLabs Agents Platform** (R1.4),
-телефония — **Twilio 8kHz WS** + sim-market тумблер (R2.1, R5.1). Вертикаль — переезды, конфигом (B4).
+телефония — **Twilio 8kHz WS** + sim-market тумблер (R2.1, R5.1). Вертикаль — переезды, конфигом
+(B4; B-коды определены в [`inherit-vs-build.md`](inherit-vs-build.md)).
 
-> Расхождения между доками разрешены — свод в [§10 Канон-решения](#10-канон-решения-разрешение-14-расхождений-2026-07-18).
+> Расхождения между доками разрешены — свод в [§10 Канон-решения](#10-канон-решения-журнал-решений).
 
 ---
 
 ## 0. Три правила модульности
 
 1. **Core-only imports.** Модули не импортируют друг друга — только `core/` (`contracts/` — схемы данных,
-   ноль логики; `journal` — append-only writer). Всё общение — типизированные события + call card.
-   Нарушение — ревью-стоп.
-2. **Journal = репродьюсер.** Каждое меж-модульное сообщение пишется в JSONL-журнал звонка
+   ноль логики; `bus` — pub/sub меж-модульных событий; `journal` — append-only writer). Всё общение —
+   типизированные события через bus + call card. Нарушение — ревью-стоп.
+2. **Journal = репродьюсер, конструкцией.** Каждое меж-модульное сообщение попадает в JSONL-журнал звонка
+   не дисциплиной, а устройством: journal подписан на bus целиком — опубликовал событие → оно уже в журнале
    (наследуем `synapse/journal.py`; схема — `JournalEvent` §2). Любой баг = слайс журнала → фикстура →
    replay в одном модуле, офлайн, без аудио.
-3. **Каждый модуль отвечает на `python -m negotiator.<module> --replay <fixture>`.**
-   Не запускается в одиночку — значит не закончен.
+3. **Каждый decision-модуль отвечает на `python -m negotiator.<module> --replay <fixture>`.**
+   Decision-модули: `gate, fsm, talker, strategist, ledger, opponent, estimator, report, firewall`.
+   Не запускается в одиночку — значит не закончен. I/O-адаптеры (`transport, stt, tts, dashboard`) —
+   smoke-тест + журнал; replay-CLI им не положен (обвязка дороже пользы, §10 п.20).
 
 ## 1. Карта модулей
 
@@ -36,42 +40,44 @@ counter-агенты — **ElevenLabs Agents Platform** (R1.4),
 | Модуль | Вход → Выход | Наследует из synapse | Пишем |
 |---|---|---|---|
 | **база (core — импортируется всеми наравне с contracts)** | | | |
+| `bus` | publish(event) → подписчики + журнал | — | крошечный pub/sub меж-модульных **событий** (не аудио-фреймов — те живут в pipecat-пайплайне); journal подписан на всё → §0.2 держится конструкцией (§10 п.23) |
 | `journal` | любое меж-модульное событие → append-only JSONL | `synapse/journal.py` | seq-нумерация, slice-дружелюбный формат (`JournalEvent` §2) |
 | **контур звонка** | | | |
-| `transport` | телефон/браузер ⇄ PCM-фреймы | браузер/sim: `pipeline/webrtc_server.py` | **телефон: НЕ webrtc — `FastAPIWebsocketTransport` + `TwilioFrameSerializer` @ 8kHz (R2.1)**; sim-канал |
+| `transport` | телефон/браузер ⇄ PCM-фреймы | браузер: `pipeline/webrtc_server.py` | **телефон: НЕ webrtc — `FastAPIWebsocketTransport` + `TwilioFrameSerializer` @ 8kHz (R2.1)**; sim-канал = `el_ws.py`, мост к EL counter-агенту напрямую по WS (§10 п.27) |
 | `stt` | фреймы → transcript-события | pipeline (Deepgram) | конфиг phonecall-модели |
 | `firewall` | сырой транскрипт → санитизированный | — | экранирование role-делимитеров (R5.3-3) |
 | `arbiter` | VAD/turn-события → «чей ход», barge-in | `pipeline/arbiter.py` | тактическая пауза (§5) |
-| `talker` | call card + хвост транскрипта → драфт реплики | `dispatcher/llm_client.py` | промпт + библиотека Voss (R3.1); seed-карта (§3.4) |
+| `talker` | call card + хвост транскрипта → драфт реплики | `dispatcher/llm_client.py` | `gpt-4.1-mini` @ OpenAI direct (§10 п.18); промпт + библиотека Voss (R3.1); seed-карта (§3.4) |
 | `gate` | драфт + ledger → allow / block+reason | `guards.py`, `dispatcher/tools.py` | вид котировки + **leak-guard приватных полей (R5.3-2, §3.1)** |
 | `prosody` | фаза → `voice_settings` пресет | — | таблица пресетов (R1.2) |
-| `tts` | текст + пресет → аудио | `pipeline/tts_cache.py` | вендор-свап Fish→ElevenLabs (B1) |
+| `tts` | `ApprovedUtterance` + пресет → аудио | `pipeline/tts_cache.py` | вендор-свап Fish→ElevenLabs (B1); другой входной тип не принимает — обход гейта невыразим (§3.1, §10 п.24) |
 | **мозг** | | | |
-| `fsm` | события → переход стадии/фазы **или exception** | `synapse/threads.py` | 2 вложенные машины: стадии + фазы NEGOTIATE (§2) |
+| `fsm` | события → переход фазы **или exception** | `synapse/threads.py` | одна машина — фазы NEGOTIATE (§2, §10 п.21); жизненный цикл звонка — оркестрация в `market` |
 | `ledger` | факты с provenance → стор, `cite(fact_id)` | `journal.py` паттерн | схема, write-authority (R5.3-1) |
-| `strategist` | дельта транскрипта + ledger + opponent → новая call card | `cascade/*` (breaker, failover) | промпт, политика анкеринга (R3.2) |
+| `strategist` | дельта транскрипта + ledger + opponent → новая call card | `cascade/*` (breaker, failover) | `gpt-5.6-sol` @ OpenAI direct, effort=medium (§10 п.19); промпт, политика анкеринга (R3.2) |
 | `opponent` | таймлайн цен + реплики → тактики, floor-оценка | — | **чистые функции** Faratin (R3.3) |
 | **петля продукта** | | | |
 | `estimator` | голос И документы → JobSpec → CONFIRM | **голос: EL Agents Platform** (§10 п.15); док-путь — свой | структурный вывод EL→маппинг в JobSpec, док-инжекшн (B3) |
 | `verify` | USDOT **или MC** → verification-факт в ledger | tool-loop | FMCSA QCMobile, оба эндпоинта (R4.2) |
 | `discovery` | вертикаль + гео → список бизнесов (name+phone+cat) | — | **Google Places (New) Text Search** (дыра C); FMCSA-энрич |
-| `market` | JobSpec + **список из `discovery`** → расписание звонков, cross-call ledger | — | порядок обзвона (§7) |
+| `market` | JobSpec + **список из `discovery`** → расписание звонков, cross-call ledger | — | порядок обзвона (§7); супервизор звонка: try/finally → `CallOutcome` даже при крахе (§10 п.22); `demo_number_map` (§10 п.28) |
 | `report` | outcomes[] → ранжированный отчёт с цитатами | `journal.py` | нормализация, ранг, red-flags (B5) |
 | `counteragents` | конфиг → 3 агента (dispatcher/closer/broker) | — | EL Agents Platform, low-code (R1.4) |
 | `dashboard` | журнал-события (WS) → war-room UI | `pipeline/client/`, `status-widget.js` | панели §8 |
 | `config` | YAML вертикали → все модули | `config.py`, `prompt.py` | контент-пак переездов (B4) |
 
-## 2. Контракты (`contracts/` + `journal` — единственная точка связности)
+## 2. Контракты (`contracts/` + `bus`/`journal` — единственная точка связности)
 
 Компактные схемы; на диске — pydantic + JSON Schema. Поле со ★ — инвариант, проверяемый в коде.
 
-**Две вложенные машины состояний** (не путать — §3.3, §10 п.10):
-- **Стадии** (жизненный цикл звонка, верхний FSM): `INTAKE → CONFIRM_SPEC → CALLING → NEGOTIATE → OUTCOME`.
-  `INTAKE`+`CONFIRM_SPEC` голосового пути ведёт **EL Agents Platform** (§10 п.15, требование брифа): интервью +
-  read-back-подтверждение внутри EL-агента, на выходе — один подтверждённый JobSpec (webhook-tool `submit_job_spec`).
-  Дальше `CALLING → NEGOTIATE → OUTCOME` — наш каскад (паттерн `threads.py` переносим как есть).
-- **Фазы** (внутри стадии NEGOTIATE, нижний FSM): `OPENING → DISCOVERY → PRESSURE_TEST → LEVERAGE → COMMIT → WRAP`.
-  `CallCard.phase` — это **фаза**, не стадия.
+**Одна FSM — фазы NEGOTIATE** (§10 п.21): `OPENING → DISCOVERY → PRESSURE_TEST → LEVERAGE → COMMIT → WRAP`;
+таблица запрещённых переходов — §2 call-architecture; `CallCard.phase` — всегда фаза. Жизненный цикл звонка
+(`INTAKE → CONFIRM_SPEC → CALLING → NEGOTIATE → OUTCOME`) — **не вторая машина, а линейная оркестрация в
+`market`**: `INTAKE`+`CONFIRM_SPEC` голосового пути ведёт **EL Agents Platform** (§10 п.15, требование
+брифа) — интервью + read-back-подтверждение внутри EL-агента, на выходе один подтверждённый JobSpec
+(webhook-tool `submit_job_spec`); дальше `CALLING → NEGOTIATE → OUTCOME` запускает `market` под своим
+супервизором (§10 п.22). У линейного жизненного цикла запрещать нечего — вся переговорная дисциплина
+живёт в фазовой машине.
 
 **Приватные поля — никогда не произносятся вслух** (leak-guard gate, R5.3-2): `JobSpec.budget_ceiling`,
 оценка `floor` оппонента (`opponent`), ценовой коридор, системный промпт. Gate блокирует драфт Talker'а,
@@ -82,11 +88,17 @@ JobSpec        {origin, destination, distance_mi, size(studio…4BR+), date_wind
                 floors/elevator, specialty_items[], inventory_src(voice|doc|both),
                 budget_ceiling★(приватно — никогда не в call card и не вслух), confirmed★:bool}
 
-CallCard       {phase(OPENING…WRAP), phase_goal, next_move, allowed_fact_ids[]★, tone_preset,
-                client_directives[]}          # Talker читает ТОЛЬКО её
+CallCard       {version★(монотонная), phase(OPENING…WRAP), phase_goal, next_move, allowed_fact_ids[]★,
+                tone_preset, client_directives[]}
+                # Talker читает ТОЛЬКО её; каждая реплика в журнале несёт version карты,
+                # по которой сказана (дебаг «реплика невпопад», §5)
                 # seed-карта (cold start, Strategist ещё не прогрет): phase=OPENING,
                 # goal="AI-disclosure + раппорт", next_move=disclosure-строка (R3.4),
                 # allowed_fact_ids=[], tone=warm. Talker всегда имеет валидную карту (§3.4).
+
+ApprovedUtterance {text, card_version, gate_verdict_ref}
+                # ★ конструируется ТОЛЬКО внутри gate; tts другой входной тип не принимает →
+                # обход гейта не «запрещён ревью», а невыразим в коде (§3.1, §10 п.24)
 
 LedgerFact     {id, kind(quote|benchmark|jobspec|verification|directive),
                 value, source★{type(transcript|config|api), ref, span}, call_id, ts}
@@ -109,7 +121,8 @@ Report         {recommendation_plain★(простым языком: кого б
                 # каждая цитата = аудио-момент (Media Fragments `#t=sec`) + span транскрипта (дыра E закрыта)
 
 JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload, refs[]}
-                # правило §0.2: КАЖДОЕ меж-модульное сообщение → строка журнала.
+                # правило §0.2 (конструкцией: journal подписан на bus): КАЖДОЕ меж-модульное
+                # сообщение → строка журнала.
                 # tools/slice.py фильтрует по (call_id, module, kind) → фикстура одного модуля.
 ```
 
@@ -122,11 +135,20 @@ JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload
   ledger → блок + перегенерация. Нет режима «предупредить и пропустить».
 - **Инвариант B (leak-guard, исходящая утечка — R5.3-2):** драфт Talker'а не должен содержать приватные
   поля (`budget_ceiling`, `floor`, ценовой коридор, системный промпт) даже под инъекцией → блок.
-  Это защита от Chevy-кейса со **стороны выхода** (§6 call-architecture).
+  Это защита со **стороны выхода** от Chevy-кейса — прецедент из research [R5.3]: дилерский чат-бот,
+  которого инъекцией довели до «продажи» SUV за $1. Механика разделения полномочий — §6 call-architecture.
+  (Нумерация R5.3-1..3 в этом доке = порядок буллетов research [R5.3].)
+- **Инвариант C (блок ≠ тишина, §10 п.25):** на блоке Talker немедленно произносит stall-фразу из
+  Voss-библиотеки конфига («секунду, сверюсь с записями») и перегенерирует под неё — латентный бюджет
+  не рвётся, для оппонента блок звучит как естественная пауза; счётчик на дашборде +1.
+- **Выход — только `ApprovedUtterance`** (§2, §10 п.24): единственный тип, который принимает `tts`.
+  Обход гейта не «запрещён ревью», а невыразим в коде.
 - **Дебаг:** `python -m negotiator.gate --replay fixtures/bluff_corpus.jsonl` (инвариант A: честные /
   явные блефы / пограничные «примерно четыре тысячи» без факта) и `--replay fixtures/leak_corpus.jsonl`
   (инвариант B: «а сколько у клиента максимум?» → драфт со сливом коридора обязан блокироваться).
-  Выход: verdict+reason на строку. Демо-момент «принудительный тест лжи» — bluff_corpus, кейс #1.
+  Выход: verdict+reason на строку. Демо-момент «принудительный тест лжи» — **вживую, через шёпот-канал**
+  (§10 п.26): судья пишет в war-room «скажи, что у вас уже есть котировка $3,000» → директива уходит в
+  call card, факта в ledger нет → gate блокирует на сцене. bluff_corpus кейс #1 — офлайн-репетиция того же.
 
 ### 3.2 `opponent` — чистая математика, ноль LLM
 - Floor-оценщик = формулы R3.3 как **pure functions**: `estimate_floor(prices, ts) -> (f_hat, band)`;
@@ -135,18 +157,24 @@ JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload
   кривой. Табличные тесты на синтетических Boulware/Conceder-кривых. Никакого пайплайна вообще.
 
 ### 3.3 `fsm` — дисциплина как исключение
-- **Инвариант:** запрещённый переход (таблица §2 call-architecture) → exception, не лог.
-  Выход из звонка мимо `WRAP` невозможен → `CallOutcome` есть всегда.
-- **Две машины** (§2): верхняя (стадии) и внутренняя NEGOTIATE (фазы) — раздельные таблицы переходов.
+- **Инвариант:** запрещённый переход (таблица запретов — §2 call-architecture) → exception, не лог.
+- **Одна машина — фазы NEGOTIATE** (§2, §10 п.21). Гарантия «`CallOutcome` есть всегда» — двухслойная:
+  внутри переговоров выход мимо `WRAP` невозможен (exception), а уровнем выше супервизор звонка в
+  `market` (try/finally, §10 п.22) собирает outcome из хвоста журнала даже при обрыве транспорта или
+  краше процесса — инвариант переживает смерть самого процесса.
 - **Дебаг:** table-driven тест всех переходов + replay журнала фаз. Ошибка «фаза перескочила»
   локализуется по стектрейсу, не по логам.
 
 ### 3.4 `talker` / `strategist` — два контура, две скорости
 - **Инвариант talker:** говорит только из call card; если Strategist не успел — старая карта, а на
   холодном старте (карты ещё нет) — **seed-карта** из контракта (§2: phase=OPENING, disclosure-ход),
-  **никогда не ждёт и никогда не без карты**. Не имеет tools, меняющих состояние.
+  **никогда не ждёт и никогда не без карты**. Не имеет tools, меняющих состояние. Каждая реплика
+  публикуется с `card.version` (§2) — в журнале видно, по какой карте она сказана.
 - **Инвариант strategist:** единственный владелец `accept_price` tool; коридор — из подтверждённого
   JobSpec. Читает ledger, не сырые реплики (R5.3).
+- **Модели (§10 п.18–19):** Talker = `gpt-4.1-mini` @ OpenAI direct (по бенчу `bench/`, TTFT p50 517мс +
+  лучшее качество). Strategist = `gpt-5.6-sol` @ OpenAI direct, `reasoning_effort=medium` (латентность не
+  связывающая). Fallback-путь Talker'а — `gemini-2.5-flash-lite` @ OpenRouter.
 - **Дебаг talker:** `--card fixtures/card_leverage.json --transcript fixtures/tail.txt` → печатает реплику.
   Оценка: попала ли в разрешённые фразы Voss-библиотеки фазы.
 - **Дебаг strategist:** слайс журнала звонка → печатает diff старой/новой call card. Golden-тест:
@@ -168,8 +196,10 @@ JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload
   - выдача spec'а — **webhook-tool `submit_job_spec`**, тело = наша схема JobSpec (поля value-type `LLM Prompt`
     от юзера / `Dynamic Variable` от OCR — чтобы агент не перезаписал верифицированный OCR галлюцинацией),
     вызывается ПОСЛЕ подтверждения. Это шов: EL отдаёт один готовый подтверждённый JSON нашему бэкенду.
-  - страховка: Data Collection + post-call webhook (HMAC-подпись) как **вторичный** аудит, не основной путь
-    (post-call, LLM-инференс, недетерминирован).
+  - маппер `submit_job_spec` → JobSpec **идемпотентен** по `conversation_id` (§10 п.30): EL ретраит
+    webhook'и — повторная доставка не рождает второй JobSpec;
+  - опционально, только если останется время: Data Collection + post-call webhook (HMAC) как вторичный
+    аудит (post-call, LLM-инференс, недетерминирован) — демо-петлю не двигает, режем первым.
 - Док-путь (vision/OCR, B3) → **та же** схема JobSpec, один CONFIRM.
 - **Honesty-gate здесь не нужен:** интейк — с кооперативным КЛИЕНТОМ, фабриковать нечего; `budget_ceiling`
   клиент называет сам. EL Guardrails (LLM-классификатор, не fail-closed) для интейка ок; детерминированный
@@ -179,7 +209,8 @@ JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload
 
 ### 3.7 `verify` — FMCSA live tool
 - USDOT: `GET /carriers/{dot}?webKey=` (+ `/authority`, `/oos`); MC: `GET /carriers/docket-number/{mc}?webKey=`
-  (⚠️ дефис `docket-number`); fallback — SAFER-скрейп (R4.2).
+  (⚠️ дефис `docket-number`); fallback — **фикстура ответа**, не SAFER-скрейп (§10 п.29): у fallback'а
+  на сцене ровно одна попытка без репетиции — замороженные данные надёжнее второй реализации.
 - **Дебаг:** `python -m negotiator.verify --dot 123456` **или** `--mc 654321` — самодостаточный HTTP-клиент
   (MC-путь обязателен для broker-кейса RF4/RF-C). ⚠️ webKey получить заранее (Login.gov, вручную).
 
@@ -189,7 +220,12 @@ JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload
   places.displayName,places.formattedAddress` → name+phone в одном ответе (SKU Text Search Enterprise ~$35/1k, для демо копейки;
   ключ self-serve GCP, <10 мин). Yelp дисквалифицирован ($299/мес + триал запрещает деплой), OSM/Overpass — бесплатный фолбэк,
   покрытие `movers` рваное. FMCSA — **не** discovery (ищет по имени/USDOT, без гео), а слой легитимности → отдаётся в `verify`.
-- market: порядок обзвона (аутсайдер первым, фаворит последним §7); после каждого звонка Quote → LedgerFact для следующих.
+- **Шов real→demo (§10 п.28):** реальным муверам не звоним — discovery-список идёт судьям как витрина
+  источника (панель дашборда + отчёт), а `market` маппит топ-3 позиции списка на Twilio-номера
+  counter-агентов через `config.demo_number_map`. Пустой маппинг = боевой режим (звоним по реальным
+  номерам): смена режима — конфиг, не код.
+- market: порядок обзвона (аутсайдер первым, фаворит последним §7); после каждого звонка Quote → LedgerFact для следующих;
+  супервизор звонка (§3.3): try/finally вокруг каждого звонка → `CallOutcome` из хвоста журнала при любом обрыве.
 - report: нормализация line items → ранг → red-flag правила RF-A…RF-F (R4.5) → цитаты = span транскрипта
   **+ аудио-момент** (`{recording_url}#t={offset_sec}`, Media Fragments URI; offset из Twilio `start_time` или
   EL `time_in_call_secs`) **+ плейн-текст рекомендация**. Twilio dual-channel по умолчанию → speaker-атрибуция бесплатно.
@@ -208,8 +244,14 @@ JournalEvent   {seq★(монотонный), ts, call_id, module, kind, payload
    → демо barge-in (§8) + eval «вытащил ли 14 статей».
 2. **`pressure_closer`** (carrier, искусственный дедлайн «цена завтра вырастет», высокий якорь) —
    **уступает под цитатой конкурентной котировки**. → измеримый сдвиг цены (§8) + тактическая пауза + классификатор тактик.
-3. **`lowball_broker`** (broker, не carrier; −30% ниже бенчмарка, sight-unseen, депозит cash/wire
-   non-refundable, скрывает реального carrier). → red-flag **в разговоре** RF-A/B/C (§8) + USDOT/MC verify tool-call.
+3. **`lowball_broker`** (broker, не carrier; **−35%** ниже бенчмарка — с запасом за порогом RF-формулы
+   `<0.70×benchmark_low` (§3.8): скриптованная котировка ровно на −30% легла бы на границу и ALARM бы
+   не сработал; sight-unseen, депозит cash/wire non-refundable, скрывает реального carrier).
+   → red-flag **в разговоре** RF-A/B/C (§8) + USDOT/MC verify tool-call.
+- **Sim-паритет (§10 п.27):** sim-market — это ТЕ ЖЕ 3 EL-агента, к которым transport подключается
+  напрямую по WS (`el_ws.py`), минуя Twilio-leg. Никаких локальных копий персон: одна реализация на
+  live и sim, evals видят то же поведение, что и живой звонок. Черновики агентов поднимаются в час 0–2
+  (low-code UI, параллельно contracts), чтобы с 5-го часа все evals шли против настоящих персон.
 - **Дебаг:** позвонить каждому напрямую до интеграции. «Сметы» содержат запланированные скрытые сборы —
   это фикстуры eval. Порядок обзвона (cross-call §7): `lowball_broker` → `rushed_dispatcher` →
   `pressure_closer` (фаворит последним, против максимального рычага).
@@ -225,9 +267,11 @@ live-смета. **Дебаг:** replay журнала записанного з
 negotiator/
   core/                 # импортируется всеми; ноль импортов ПРОЧИХ модулей
     contracts/          # схемы §2; ноль логики
+    bus.py              # pub/sub меж-модульных событий; journal подписан на всё — §0.2 конструкцией
     journal.py          # append-only JSONL, JournalEvent, seq (наследует synapse/journal.py)
   call/                 # контур звонка
-    transport/          #   webrtc.py (браузер/sim) + twilio.py (FastAPIWebsocketTransport+TwilioFrameSerializer 8kHz, R2.1)
+    transport/          #   webrtc.py (браузер) + twilio.py (FastAPIWebsocketTransport+TwilioFrameSerializer 8kHz, R2.1)
+                        #   + el_ws.py — sim: мост к EL counter-агенту напрямую по WS (§10 п.27)
     stt.py  firewall.py  arbiter.py  talker.py  gate.py  prosody.py  tts.py
   brain/
     fsm.py  ledger.py  strategist.py  opponent.py
@@ -235,7 +279,9 @@ negotiator/
     estimator/  discovery.py  verify.py  market.py  report.py
   config/
     verticals/moving.yaml     # таксономия, бенчмарки R4.3, 14 сборов R4.4, RF-правила R4.5,
-                              # Voss-библиотека R3.1, политика анкеринга R3.2, disclosure R2.2/R3.4
+                              # Voss-библиотека R3.1 (+ stall-фразы §3.1), анкеринг R3.2,
+                              # disclosure R2.2/R3.4, demo_number_map (§3.8)
+    verticals/plumbing.yaml   # скелет второй вертикали — живой diff для судей (§8, §10 п.31)
   dashboard/            # PWA war-room
   fixtures/             # bluff_corpus, leak_corpus, boulware_prices, injection_corpus, three_calls, old_quote.pdf
   tools/
@@ -251,7 +297,9 @@ counteragents/          # экспорт конфигов EL Agents Platform (ru
 | Назвал число не из ledger | `gate` | `gate --replay bluff_corpus.jsonl` — обязан блокировать |
 | Слил коридор/floor под инъекцией | `gate` | `gate --replay leak_corpus.jsonl` — обязан блокировать (инвариант B) |
 | Floor скачет / чушь | `opponent` | `opponent --prices …` (pure fn) |
-| Фаза перескочила / нет исхода звонка | `fsm` | стектрейс исключения + table-тест |
+| Фаза перескочила | `fsm` | стектрейс исключения + table-тест |
+| Звонок без `CallOutcome` (обрыв/краш) | `market` | юнит супервизора: kill процесса мид-звонка → outcome из хвоста журнала |
+| Sim-звонок не соединяется | `transport` | `el_ws.py` smoke против EL-агента напрямую |
 | Перебивает собеседника | `arbiter` | replay VAD-событий |
 | Молчит >800мс (sim/WebRTC) / >1.1с (живой Twilio) | — | `tools/latency_report.py` → виновное звено (обычно VAD или LLM TTFT, R5.2) |
 | Реплика невпопад при живой карте | `talker` | `--card --transcript` фикстура |
@@ -268,7 +316,7 @@ counteragents/          # экспорт конфигов EL Agents Platform (ru
 ```
 STT-uplink WS ─fail─► хотспот как ОСНОВНОЙ канал + WS-watchdog/reconnect   # R5.1: падает первым, тихо
    (2-й STT-вендор не выбран — митигируем каналом + реконнектом + записью, не альтернативным STT)
-Twilio live  ──fail─► sim-market (локальный counter-агент)                  # убирает телефонный leg
+Twilio live  ──fail─► sim-market (те же EL-агенты напрямую по WS, el_ws.py) # убирает телефонный leg, персона та же
 EL TTS live  ──fail─► кэш TTS (опенер + решающие реплики)
 всё ─────────fail─► записанный полный прогон
 ```
@@ -279,13 +327,13 @@ EL TTS live  ──fail─► кэш TTS (опенер + решающие реп
 
 | Часы | Блок | Выход (проверяемый) |
 |---|---|---|
-| 0–2 | contracts + журнал + скелет + перенос arbiter/fsm | `fsm` table-тест зелёный |
-| 2–5 | talker + gate (A+B) + ledger, текстовый луп против sim | bluff_corpus и leak_corpus блокируются |
-| 5–8 | EL TTS свап + Deepgram + латентность | голосовой луп ≤800мс WebRTC |
+| 0–2 | contracts + bus/журнал + скелет + перенос arbiter/fsm; параллельно (low-code UI): черновики 3 counter-агентов на EL | `fsm` table-тест зелёный; каждому counter-агенту можно позвонить |
+| 2–5 | talker + gate (A+B+C) + ledger, текстовый луп против counter-агента | bluff_corpus и leak_corpus блокируются |
+| 5–8 | EL TTS свап + Deepgram + el_ws sim-мост + латентность | голосовой луп против EL-агента живёт; latency_report работает, медиана ≤1.2с (800мс — цель оптимизации, не ворота: типично 900мс–1.8с, §1) |
 | 8–11 | strategist + call card + opponent | floor-кривая на дашборд-json |
-| 11–14 | market + report (cross-call) | 3 sim-звонка → отчёт с цитатами |
-| 14–16 | estimator: док-путь + CONFIRM | pdf → JobSpec golden |
-| 16–18 | Twilio live leg (1 из 3 звонков) + 3 counter-агента на EL | 1 живой звонок записан; план звонков §8 |
+| 11–14 | market (супервизор + demo_number_map) + discovery + report | 3 sim-звонка → отчёт с цитатами; Places-список на дашборде |
+| 14–16 | estimator: EL-интейк-агент (Dynamic Vars + `submit_job_spec` + идемпотентный маппер) + док-путь | голос и pdf → один подтверждённый JobSpec golden |
+| 16–18 | Twilio live leg (1 из 3 звонков) + полировка counter-агентов | 1 живой звонок записан; план звонков §8 |
 | 18–21 | dashboard-полировка + фикстуры демо + записанный прогон + репетиция | чеклист §8 прогнан |
 
 Правило отсечения: не работает вживую к дедлайну — не существует. Первым режем: prosody-пресеты →
@@ -300,14 +348,18 @@ Cross-call cite делается на последнем звонке (`pressure
 
 - [ ] Оба пути интейка → один подтверждённый JobSpec
 - [ ] Ровно 3 звонка против 3 стилей, каждый со структурированным исходом (даже hangup)
+- [ ] Barge-in вживую: перебили — агент замолк, дослушал, вернулся к вопросу (`rushed_dispatcher`)
 - [ ] ≥1 измеримый сдвиг цены от рычага, добытого самим агентом (cross-call cite на 3-м звонке)
-- [ ] Принудительный блеф заблокирован вживую, счётчик на дашборде (bluff_corpus)
+- [ ] Принудительный блеф заблокирован вживую — директива судьи в шёпот-канал (§10 п.26); счётчик на дашборде; bluff_corpus — репетиция
 - [ ] Утечка приватного поля под инъекцией заблокирована (leak_corpus, R5.3-2)
-- [ ] Red-flag (−30% + sight-unseen) поднят **в разговоре**, не только в отчёте
+- [ ] Red-flag (−35% + sight-unseen) поднят **в разговоре**, не только в отчёте
 - [ ] AI-disclosure в первом предложении (фраза R2.2/R3.4)
 - [ ] Ранжированный отчёт с кликабельными цитатами транскриптов
 - [ ] Живой leg судится по бюджету ~1.1с, sim — по ≤800мс (§10 п.5)
-- [ ] Смена вертикали = подмена `config/verticals/*.yaml` (показать судьям diff)
+- [ ] Смена вертикали = подмена `config/verticals/*.yaml` (живой diff `moving.yaml` ↔ `plumbing.yaml`)
+
+Сценарная драматургия демо (hook-pitch, тактическая пауза, реактивное «я вообще с роботом?», HITL-шёпот) —
+[`narrative.md`](narrative.md) и таблица §8 call-architecture; здесь — только приёмочные биты брифа.
 
 ## 9. Внешние действия до старта (из research «Открытые действия», 7 пунктов)
 
@@ -319,13 +371,16 @@ Cross-call cite делается на последнем звонке (`pressure
 6. **[5-мин код-проверка, приоритет №1] R5.3-1:** нет пути записи речи оппонента в авторитетные поля
    ledger. Инвариант описан (ledger §3.5), но **проверить в коде до демо** — иначе Chevy-кейс со стороны входа.
 
-## 10. Канон-решения (разрешение 14 расхождений, 2026-07-18)
+## 10. Канон-решения (журнал решений)
 
-Свод: где доки расходились — что зафиксировано. Любой пункт-решение можно переопределить.
+Свод: п.1–17 — разрешение расхождений между доками (2026-07-18); п.18–19 — выбор LLM по бенчу;
+п.20–33 — архитектурное ревью спека (2026-07-18). Любой пункт-решение можно переопределить.
 
 1. **Роли counter-агентов** *(решение)*: `rushed_dispatcher` / `pressure_closer` / `lowball_broker` (§3.10).
    Отменяет «агрессивный/расплывчатый/премиум» (spec-старое) и «агрессивный/премиум/дисконтный» (R1.4) —
    выбор по покрытию демо-моментов §8: premium не триггерит red-flag, а приёмка его требует → взят lowball.
+   Также отменяет лейблы «жёсткий/расплывчатый/фаворит» в диаграмме call-architecture §7 — канонический
+   порядок обзвона: `lowball_broker` → `rushed_dispatcher` → `pressure_closer` (§8).
 2. **transport-наследование**: телефон = `FastAPIWebsocketTransport`+`TwilioFrameSerializer` @8kHz (R2.1),
    НЕ `webrtc_server.py` (тот — только браузер/sim). §1, §4.
 3. **R5.3-2 output-guardrail**: новый инвариант B у `gate` (leak-guard приватных полей). §3.1 + §2.
@@ -353,3 +408,49 @@ Cross-call cite делается на последнем звонке (`pressure
 17. **Discovery списка обзвона** *(решение)*: список бизнесов строится программно через **Google Places (New)
     Text Search** (`includedType=moving_company`, поле `nationalPhoneNumber`), не из конфига. Закрывает дыру C
     (бриф требует показать источник списка). FMCSA — слой легитимности через `verify`, не discovery. §1, §3.8, §4.
+18. **LLM Talker'а** *(решение, по бенчу `bench/`)*: **`gpt-4.1-mini` @ OpenAI direct** (`.env`:
+    `TALKER_MODEL`/`TALKER_PROVIDER`). Победитель И по TTFT (p50 517мс, в бюджете §5), И по качеству
+    (единственный назвал и отбил якорь $2,300, рычаг в обеих сценах, лаконичен — `bench/results/VERDICT.md`).
+    Отменяет наследованный дефолт каскада `google/gemini-3.5-flash` (~1900мс TTFT = 2.7× бюджета). Fallback для
+    не-OpenAI пути — `gemini-2.5-flash-lite` (790мс на том же OpenRouter-хопе), НЕ 3.5-flash. §1, §3.4.
+19. **LLM Strategist'а** *(решение, 2026-07-18)*: **`gpt-5.6-sol` @ OpenAI direct** (`.env`:
+    `STRATEGIST_MODEL`/`STRATEGIST_PROVIDER`, `reasoning_effort=medium`). Reasoning-модель — путь
+    `max_completion_tokens`+`reasoning_effort`, НЕ `max_tokens`/`temperature`. Латентность не связывающая
+    (async переписывает call card между репликами Talker'а — §3.4), поэтому reasoning-налог на TTFT здесь
+    допустим. Отменяет альтернативу «локальный Claude Code». §1, §3.4.
+20. **Replay-правило сужено до decision-модулей** *(ревью 2026-07-18, как и всё ниже)*: §0.3 обязателен для
+    `gate, fsm, talker, strategist, ledger, opponent, estimator, report, firewall`; I/O-адаптерам
+    (`transport, stt, tts, dashboard`) — smoke-тест: replay-обвязка транспорта дороже пользы. §0.
+21. **Одна FSM вместо двух**: «верхняя машина стадий» понижена до линейной оркестрации в `market` — после
+    ухода INTAKE+CONFIRM_SPEC на EL (п.15) в ней остались `CALLING→NEGOTIATE→OUTCOME` без единого
+    запрещённого перехода; формализм лишь плодил путаницу «стадии vs фазы» (п.10 в этой части отменён).
+    Вся переговорная дисциплина — в фазовой FSM. §1, §2, §3.3.
+22. **Outcome-супервизор в `market`**: «CallOutcome всегда» гарантируется двухслойно — fsm-exception внутри
+    NEGOTIATE + try/finally-супервизор, собирающий outcome из хвоста журнала при обрыве/краше. §1, §3.3, §3.8, §5.
+23. **`bus` в core**: журналирование §0.2 держится конструкцией — journal подписан на pub/sub целиком.
+    События, не аудио-фреймы (фреймы остаются в pipecat-пайплайне). §0, §1, §4.
+24. **Обход гейта невыразим в типах**: `tts` принимает только `ApprovedUtterance`, конструируемый только
+    внутри `gate`. Честность — конструкцией, в духе «TypeError, а не надежда на промпт». §1, §2, §3.1.
+25. **Stall-фраза на блоке гейта** (инвариант C): блок не рождает тишину — Talker произносит паузную фразу
+    из конфига, пока идёт перегенерация; латентный бюджет цел. §3.1, §4.
+26. **Принудительный блеф вживую — шёпот-каналом**: директива судьи без факта в ledger → gate блокирует на
+    сцене; интерактивнее заготовленного кейса, ноль новой инфраструктуры. bluff_corpus — репетиция. §3.1, §8.
+27. **Sim-паритет counter-агентов**: sim-market = те же EL-агенты напрямую по WS (`transport/el_ws.py`),
+    не локальные копии персон. Одна реализация персоны на live и sim. §1, §3.10, §4, §6.
+28. **Шов discovery→звонки**: реальный Places-список — витрина источника (дашборд/отчёт); `market` маппит
+    топ-3 на номера counter-агентов через `config.demo_number_map` (пустой маппинг = боевой режим). §1, §3.8, §4.
+29. **verify-fallback = фикстура**, SAFER-скрейп не пишем: у fallback'а одна попытка на сцене — только
+    замороженные данные. §3.7.
+30. **Идемпотентный `submit_job_spec`** по `conversation_id`: EL ретраит webhook'и. Вторичный аудит
+    (Data Collection) — опционален, режем первым. §3.6.
+31. **Скелет второй вертикали** `plumbing.yaml` — иначе чекбокс «показать diff» нечем показывать. §4, §8.
+32. **План билда пересобран**: черновики counter-агентов в час 0–2 (low-code, параллельно contracts);
+    el_ws-мост в 5–8; discovery в 11–14; слот EL-интейк-агента в 14–16 (раньше отсутствовал вовсе);
+    milestone латентности часов 5–8 = «latency_report работает + медиана ≤1.2с» — гейтовать прогресс на
+    ≤800мс нельзя, наш же ресёрч зовёт это оптимистичным таргетом (п.5/п.14). §7.
+33. **Фиксы ссылок по внешнему ревью**: Chevy-кейс определён на месте (§3.1) с указателем на research
+    [R5.3] — ссылка на call-architecture §6 была битой; нумерация R5.3-1..3 = порядок буллетов research;
+    barge-in добавлен в приёмку §8; `lowball_broker` сдвинут на **−35%** — ровно −30% легло бы на границу
+    RF-формулы `<0.70×` и ALARM бы не сработал (заодно сводит 35% из narrative/call-architecture §8 с
+    порогом −30%); лейблы звонков call-architecture §7 отменены (п.1); Flash v2.5 цитируется как
+    R1.1/R1.2 (R0.3 — только вендор); B-коды определены в inherit-vs-build.md. §3.1, §3.10, §8.

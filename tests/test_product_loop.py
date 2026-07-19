@@ -55,18 +55,23 @@ def test_fmcsa_dot_and_hyphenated_docket_endpoint():
     urls.clear()
     assert client.verify_mc("MC654321")["fallback"] is False
     assert "/docket-number/654321?" in urls[0]
-    assert FMCSAClient(web_key="").verify_mc("654321")["fallback"] is True
+    try:
+        FMCSAClient(web_key="").verify_mc("654321")
+    except RuntimeError as exc:
+        assert "FMCSA_WEB_KEY" in str(exc)
+    else:
+        raise AssertionError("missing FMCSA configuration must fail loudly")
 
 
 def test_market_order_mapping_and_real_mode():
-    businesses = [{"name": f"m{i}", "phone": f"real{i}"} for i in range(3)]
+    businesses = [{"name": f"m{i}", "phone": f"+1555000010{i}"} for i in range(3)]
     real = build_call_plan(businesses, {})
-    demo = build_call_plan(businesses, {role: f"demo{i}" for i, role in enumerate(CALL_ORDER)})
+    demo = build_call_plan(businesses, {role: f"+1555000020{i}" for i, role in enumerate(CALL_ORDER)})
     assert tuple(call.role for call in real) == CALL_ORDER
-    assert real[0].dial_phone == "real0" and not real[0].demo
-    assert demo[0].dial_phone == "demo0" and demo[0].demo
+    assert real[0].dial_phone == "+15550000100" and not real[0].demo
+    assert demo[0].dial_phone == "+15550000200" and demo[0].demo
     try:
-        build_call_plan(businesses, {CALL_ORDER[0]: "demo0"})
+        build_call_plan(businesses, {CALL_ORDER[0]: "+15550000200"})
     except ValueError as exc:
         assert "demo_number_map" in str(exc)
     else:
@@ -74,7 +79,7 @@ def test_market_order_mapping_and_real_mode():
 
 
 def test_sync_supervisor_guarantees_outcome_after_exception():
-    planned = build_call_plan([{"name": f"m{i}", "phone": f"p{i}"} for i in range(3)])[0]
+    planned = build_call_plan([{"name": f"m{i}", "phone": f"+1555000010{i}"} for i in range(3)])[0]
 
     def crash():
         raise RuntimeError("transport died")
@@ -97,7 +102,7 @@ def test_sync_supervisor_guarantees_outcome_after_exception():
 
 
 def test_async_supervisor_recovers_latest_journal_outcome():
-    planned = build_call_plan([{"name": f"m{i}", "phone": f"p{i}"} for i in range(3)])[0]
+    planned = build_call_plan([{"name": f"m{i}", "phone": f"+1555000010{i}"} for i in range(3)])[0]
     expected = CallOutcome(call_id=planned.call_id, mover_id=planned.mover_id, status="callback", transcript_ref="tx")
 
     async def crash():
@@ -109,7 +114,7 @@ def test_async_supervisor_recovers_latest_journal_outcome():
 
 
 def test_journal_recovery_uses_newest_partial_events():
-    planned = build_call_plan([{"name": f"m{i}", "phone": f"p{i}"} for i in range(3)])[0]
+    planned = build_call_plan([{"name": f"m{i}", "phone": f"+1555000010{i}"} for i in range(3)])[0]
     tail = [
         {"seq": 1, "kind": "callback", "payload": {"transcript_ref": "old"}},
         {"seq": 2, "kind": "refused", "payload": {"transcript_ref": "new"}},
@@ -150,7 +155,7 @@ def test_report_rejects_missing_real_citation():
 def test_market_passes_prior_quote_evidence_to_later_calls():
     records = load_records("negotiator/fixtures/three_calls.json")
     businesses = [
-        {"name": record.outcome.mover_id, "phone": f"real-{index}"}
+        {"name": record.outcome.mover_id, "phone": f"+1555000030{index}"}
         for index, record in enumerate(records)
     ]
     evidence_seen = []

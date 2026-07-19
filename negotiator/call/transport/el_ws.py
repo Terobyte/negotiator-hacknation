@@ -145,7 +145,7 @@ def decode_agent_event(raw: str | bytes) -> AgentEvent:
     if event_type == "audio":
         data = message.get("audio_event", {})
         encoded = data.get("audio_base_64") or data.get("audio_base64")
-        return AgentEvent(event_type, audio=base64.b64decode(encoded) if encoded else b"", raw=message)
+        return AgentEvent(event_type, audio=base64.b64decode(encoded) if encoded else None, raw=message)
     if event_type in {"agent_response", "user_transcript"}:
         data = message.get(f"{event_type}_event", {})
         text = data.get("agent_response") or data.get("user_transcript") or data.get("text")

@@ -53,7 +53,10 @@ def red_flags(record: OutcomeRecord, benchmark_low: Decimal) -> tuple[str, ...]:
         flags.append("RF-B[HIGH]: deposit exceeds 25% or is cash/wire-only")
     if not record.carrier_or_broker_disclosed or (not quote.usdot and not quote.mc):
         flags.append("RF-C[HIGH]: broker/carrier or USDOT/MC identity was not provided")
-    if _bad_verification(record.verification or {}):
+    verification = record.verification or {}
+    if isinstance(verification, Mapping) and verification.get("fallback") is True:
+        flags.append("RF-D[MED]: FMCSA verification is unavailable (fallback data)")
+    elif _bad_verification(verification):
         flags.append("RF-D[HIGH]: FMCSA verification is adverse")
     if quote.estimate_type is EstimateType.NON_BINDING and not record.mentions_110_percent:
         flags.append("RF-E[MED]: non-binding estimate omitted the 110% rule")
@@ -79,6 +82,7 @@ def build_report(
 ) -> Report:
     benchmark = Decimal(str(benchmark_low))
     ranked: list[RankedMover] = []
+    uncited = 0
     for record in records:
         quote = record.outcome.quote
         if quote is None:
@@ -88,7 +92,8 @@ def build_report(
             str(name) for code, name in sorted(fee_names.items()) if int(code) not in disclosed_codes
         )
         if not record.citations:
-            raise ValueError(f"{record.outcome.call_id} has no transcript+recording citation")
+            uncited += 1
+            continue
         ranked.append(
             RankedMover(
                 mover=record.outcome.mover_id,
@@ -99,6 +104,8 @@ def build_report(
             )
         )
     if not ranked:
+        if uncited:
+            raise ValueError("report requires at least one quoted outcome with a citation")
         raise ValueError("report requires at least one quoted outcome")
     ranked.sort(key=lambda item: (len(item.red_flags), item.normalized_total, len(item.missing_items)))
     winner = ranked[0]
@@ -120,8 +127,7 @@ def load_records(path: str | Path) -> list[OutcomeRecord]:
     result: list[OutcomeRecord] = []
     for row in rows:
         outcome_data = row.get("outcome", row)
-        contract_keys = set(CallOutcome.model_fields)
-        outcome = CallOutcome.model_validate({key: value for key, value in outcome_data.items() if key in contract_keys})
+        outcome = CallOutcome.model_validate(outcome_data)
         citations = tuple(Citation.model_validate(item) for item in row.get("citations", ()))
         result.append(
             OutcomeRecord(
