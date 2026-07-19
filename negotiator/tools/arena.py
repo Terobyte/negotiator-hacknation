@@ -650,7 +650,7 @@ def coach_live(genome: Mapping[str, Any], scorecards: list[dict[str, Any]], *, m
             + (f"TRANSCRIPT TAILS:\n{tails}\n" if tails else "")
         )
         response = client.chat.completions.create(
-            model=model, messages=[{"role": "user", "content": prompt}], max_completion_tokens=900,
+            model=model, messages=[{"role": "user", "content": prompt}], max_completion_tokens=10_000,
         )
         text = (response.choices[0].message.content or "").strip()
         if text.startswith("```"):

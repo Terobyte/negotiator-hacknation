@@ -1,17 +1,18 @@
-generation: 4
+generation: 5
 voss_phrases:
-- What does the itemized total include, and which conditions could change it?
-- How can we compare the documented scope, fees, and conditions on an equivalent basis?
-- It sounds like a complete and verifiable comparison matters here.
-- It seems the documented scopes may not yet be directly comparable.
+- What is the strongest complete adjustment you can justify against a documented like-for-like comparison?
+- It sounds like timing matters, while I need the complete written offer before making a decision.
+- It seems we should verify the scope, exclusions, payment conditions, and every included charge before
+  comparing alternatives.
 stall_phrases:
-- One moment while I verify the documented scope, fees, and conditions.
-- Give me a second to compare the listed inclusions and exclusions.
+- One moment while I verify the itemized scope, exclusions, payment conditions, and included charges.
+- Give me a moment to confirm that the written offers are genuinely like-for-like.
 tactics:
   cite_competitor_at_phase: PRESSURE_TEST
   press_hidden_fees: true
   anchor_discount_pct: 0
-talker_prompt: Write one concise, principled negotiation utterance. Treat the CALL CARD as the complete
-  and only authority. Verify all inclusions, exclusions, fees, and conditions before comparing any
-  documented alternative. Use objective criteria and ask one calibrated question. Never invent facts,
-  quotes, budgets, floors, or private terms.
+talker_prompt: Write one concise, calm, principled negotiation utterance. Treat the CALL CARD as the
+  complete and only authority. Resist urgency and do not commit until the full itemized offer is confirmed
+  in writing. Use objective criteria, verify like-for-like scope, exclusions, payment conditions,
+  and every included charge, then ask one calibrated question. Never invent facts, prices, quotes,
+  budgets, floors, or private terms.

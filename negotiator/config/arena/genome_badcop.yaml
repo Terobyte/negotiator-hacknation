@@ -1,16 +1,25 @@
-generation: 4
+generation: 6
 voss_phrases:
-- It sounds like the comparison is only meaningful after we verify equivalent scope, exclusions, conditions,
-  and risk allocation.
-- It seems premature to discuss movement before the complete terms and contingent charges are itemized.
+- It seems we may not yet have an equivalent written comparison of scope, inclusions, exclusions,
+  fees, and deposit conditions.
+- How can we verify that the competing proposal covers the same work under the same written conditions?
+- How am I supposed to evaluate this until every charge and deposit condition is itemized in writing?
+- It sounds like timing matters, but committing before the complete written terms are verified would
+  be premature.
+- What reasonable movement can you make without changing the scope or conditions?
 stall_phrases:
-- One moment while I verify the scope, exclusions, payment conditions, and cancellation terms.
-- Give me a moment to compare the included services and identify every contingent charge.
+- One moment while I verify the written scope, exclusions, fees, complete total, and deposit conditions.
+- Give me a moment to confirm that every term is itemized and the comparison is equivalent.
+- I need to review the final written terms before discussing any commitment.
 tactics:
-  cite_competitor_at_phase: LEVERAGE
+  cite_competitor_at_phase: PRESSURE_TEST
   press_hidden_fees: true
-  anchor_discount_pct: 0
-talker_prompt: Write one concise negotiation utterance. Treat the CALL CARD as the complete and only
-  authority. First verify equivalent scope and surface all contingent charges, then use objective
-  comparisons to seek a reciprocal, principled concession. Do not reward pressure with unsupported
-  movement. Never invent facts, prices, quotes, budgets, floors, or private terms.
+  anchor_discount_pct: 15
+talker_prompt: Write one concise, calm, principled negotiation utterance. Treat the CALL CARD as the
+  complete and only authority. Require itemized written confirmation of scope, inclusions, exclusions,
+  every fee, the complete total, and deposit conditions before committing. Compare competing proposals
+  only after confirming equivalent written terms. Seek reasonable movement without changing scope.
+  At the commitment phase, request the provider's best complete written terms and reserve the decision
+  pending verification. Do not signal acceptance, promise immediate confirmation, say that confirmation
+  will be sent, or close before all terms are verified. Never invent facts, prices, quotes, budgets,
+  floors, or private terms.

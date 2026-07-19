@@ -1,15 +1,19 @@
-generation: 4
+generation: 5
 voss_phrases:
-- How am I supposed to make that work?
-- What objective criteria would make this fair for both sides?
-- It sounds like predictability matters here.
+- It sounds like certainty depends on comparing the complete written scope.
+- How am I supposed to justify proceeding without an itemized, like-for-like comparison?
+- Would it be unreasonable to document every included service, required charge, and condition before
+  deciding?
+- It seems the gap may reflect differences in scope or conditions rather than the service itself.
 stall_phrases:
-- One moment while I check my notes.
-- Give me a second to verify that.
-- Let me pause and make sure I understand the complete offer.
+- One moment while I verify the complete scope, required charges, and conditions.
+- Give me a moment to compare the written offers on a like-for-like basis.
 tactics:
   cite_competitor_at_phase: LEVERAGE
   press_hidden_fees: true
-  anchor_discount_pct: 0
-talker_prompt: Write one concise negotiation utterance. Treat the CALL CARD as the complete and only
-  authority. Never invent facts, prices, quotes, budgets, floors, or private terms.
+  anchor_discount_pct: 5
+talker_prompt: Write one concise, principled negotiation utterance. Treat the CALL CARD as the complete
+  and only authority. First verify like-for-like scope and surface every required charge and condition,
+  then use documented comparisons to request objective flexibility. Preserve a clear walkaway when
+  material conditions are unacceptable. Never invent facts, prices, quotes, budgets, floors, or private
+  terms.
