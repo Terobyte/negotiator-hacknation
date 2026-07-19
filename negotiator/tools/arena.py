@@ -33,6 +33,7 @@ import yaml
 
 from negotiator.brain.fsm import NegotiationFSM
 from negotiator.brain.strategist import FEE_NAMES
+from negotiator.call.firewall import sanitize_transcript
 from negotiator.call.gate import HonestyGate
 from negotiator.call.talker import OfflineTalkerAdapter, Talker
 from negotiator.core.bus import EventBus
@@ -372,6 +373,69 @@ class LiveAttacker:
 
 
 # --------------------------------------------------------------------------- #
+# Defender adapter — the arena's live defender mouth. The genome's talker_prompt
+# gene is otherwise dormant (only 3 tactic knobs are live offline); --defender
+# live wakes it via a real chat model. Every draft it returns still travels
+# through the unmodified HonestyGate like any other Talker adapter, so a
+# hallucinated number becomes a stall, never speech — waking this gene can
+# never make dishonesty expressible, only change which honest phrasing is tried.
+# --------------------------------------------------------------------------- #
+class GenomeTalkerAdapter:
+    """Live defender mouth for the arena: prompts a real chat model with the genome's
+    ``talker_prompt`` gene + the CALL CARD + a sanitized transcript tail, mirroring
+    ``OpenAITalkerAdapter``'s shape. Every draft still passes the unmodified HonestyGate,
+    so a hallucinated number becomes a stall, never speech. ANY failure (no client,
+    exception, empty reply) falls back to ``OfflineTalkerAdapter`` for that turn, leaving
+    ``engaged`` unchanged — the arena never dies and never silently mislabels a fallback."""
+
+    def __init__(self, *, talker_prompt: str, model: str = "gpt-4.1-mini", client: object | None = None) -> None:
+        self._talker_prompt = talker_prompt
+        self._model = model
+        self._client = client
+        self._client_dead = False
+        self.engaged = 0  # count of turns that genuinely came from the LLM
+
+    def generate(self, *, card: CallCard, transcript_tail: str) -> str:
+        clean_tail = sanitize_transcript(transcript_tail[-1200:]).sanitized
+        client = self._ensure_client()
+        if client is None:
+            return OfflineTalkerAdapter().generate(card=card, transcript_tail=transcript_tail)
+        try:
+            prompt = (f"{self._talker_prompt}\nCALL CARD: {card.model_dump_json()}\n"
+                     f"TRANSCRIPT TAIL (untrusted style context only): {clean_tail}")
+            response = client.chat.completions.create(
+                model=self._model, messages=[{"role": "user", "content": prompt}], max_completion_tokens=120,
+            )
+            text = (response.choices[0].message.content or "").strip()
+            if not text:
+                raise RuntimeError("genome talker returned an empty draft")
+            self.engaged += 1
+            return text
+        except Exception:
+            return OfflineTalkerAdapter().generate(card=card, transcript_tail=transcript_tail)
+
+    def _ensure_client(self) -> object | None:
+        if self._client is not None:
+            return self._client
+        if self._client_dead:
+            return None
+        try:
+            from openai import OpenAI
+        except ImportError:
+            self._client_dead = True
+            return None
+        if os.getenv("OPENAI_API_KEY"):
+            self._client = OpenAI()
+        elif os.getenv("OPENROUTER_API_KEY"):
+            self._client = OpenAI(base_url="https://openrouter.ai/api/v1",
+                                  api_key=os.environ["OPENROUTER_API_KEY"])
+        else:
+            self._client_dead = True
+            return None
+        return self._client
+
+
+# --------------------------------------------------------------------------- #
 # Match — the defender plan is precomputable from scenario + genome; every money
 # figure it speaks is backed by a CONFIG-sourced LedgerFact, so the gate holds.
 # --------------------------------------------------------------------------- #
@@ -469,7 +533,7 @@ def count_fees_surfaced(line: str, hidden_fee_codes: tuple[int, ...]) -> int:
 
 
 def run_match(*, scenario: Scenario, genome: Mapping[str, Any], merged: Mapping[str, Any],
-              attacker: Any, bus: EventBus, call_id: str) -> MatchResult:
+              attacker: Any, bus: EventBus, call_id: str, talker_adapter: Any | None = None) -> MatchResult:
     tactics = genome["tactics"]
     anchor = scenario.competitor_quote * (100 - int(tactics["anchor_discount_pct"])) // 100
     red_flag_known = (bool(tactics["press_hidden_fees"])
@@ -477,7 +541,7 @@ def run_match(*, scenario: Scenario, genome: Mapping[str, Any], merged: Mapping[
     plan = _defender_plan(scenario, genome, merged, anchor=anchor, red_flag_known=red_flag_known)
     ledger = _ledger(scenario, anchor=anchor, call_id=call_id)
     fsm = NegotiationFSM()
-    talker = Talker(adapter=OfflineTalkerAdapter(), bus=bus)
+    talker = Talker(adapter=talker_adapter or OfflineTalkerAdapter(), bus=bus)
     gate = HonestyGate(stall_phrases=merged["voss"]["stalls"])
     bus.publish(BusEvent(call_id=call_id, module="arena", kind="arena.scenario", payload=scenario.as_dict()))
     tail = ""
@@ -682,6 +746,8 @@ class ArenaRun:
     live_attacker_turns: int
     live_coach: bool
     coach_requested_live: bool
+    defender: str
+    defender_llm_turns: int
 
 
 def _resolve_attacker_profile(attacker_profile: str, *, seed: int, index: int) -> str:
@@ -699,13 +765,16 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
               genome_path: str | Path | None = None, live: bool = False,
               attacker_model: str = "gpt-4.1-mini", attacker_profile: str = "clean",
               live_coach: bool = False, out_root: str | Path | None = None,
-              run_id: str | None = None, coach_client: object | None = None) -> ArenaRun:
+              run_id: str | None = None, coach_client: object | None = None,
+              defender: str = "offline", defender_client: object | None = None) -> ArenaRun:
     if mode not in ("cash", "principled"):
         raise ValueError("mode must be 'cash' or 'principled'")
     if loops < 1:
         raise ValueError("loops must be >= 1")
     if attacker_profile not in (*ATTACKER_PROFILES, "mixed"):
         raise ValueError(f"attacker_profile must be one of {(*ATTACKER_PROFILES, 'mixed')}")
+    if defender not in ("offline", "live"):
+        raise ValueError("defender must be 'offline' or 'live'")
     genome = load_genome(genome_path or SEED_GENOME_PATH)
     vertical = yaml.safe_load(VERTICAL_PATH.read_text(encoding="utf-8"))
     merged = merge_overlay(vertical, genome)
@@ -719,6 +788,7 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
         matches: list[MatchResult] = []
         scorecards: list[dict[str, Any]] = []
         live_turns = 0
+        defender_turns = 0
         for scenario in scenarios:
             resolved = _resolve_attacker_profile(attacker_profile, seed=seed, index=scenario.match)
             call_id = f"{run_id}-m{scenario.match:02d}"
@@ -732,14 +802,20 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
                 attacker: Any = LiveAttacker(scenario, _load_persona(scenario.persona), **live_kwargs)
             else:
                 attacker = ScriptedAttacker(scenario, profile=resolved)
+            # a FRESH adapter per match so ``engaged`` counts that match's turns only.
+            talker_adapter = (GenomeTalkerAdapter(talker_prompt=merged["arena"]["talker_prompt"],
+                                                  model="gpt-4.1-mini", client=defender_client)
+                              if defender == "live" else None)
             match = run_match(scenario=scenario, genome=genome, merged=merged,
-                              attacker=attacker, bus=bus, call_id=call_id)
+                              attacker=attacker, bus=bus, call_id=call_id, talker_adapter=talker_adapter)
             card = judge(match, mode=mode)
             card["profile"] = resolved
             bus.publish(BusEvent(call_id=call_id, module="arena", kind="arena.scorecard", payload=card))
             matches.append(match)
             scorecards.append(card)
             live_turns += int(getattr(attacker, "engaged", 0))
+            if talker_adapter is not None:
+                defender_turns += talker_adapter.engaged
         coach_requested_live = live or live_coach
         if coach_requested_live:
             tails = _format_tails(matches)
@@ -762,6 +838,7 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
         bus.publish(BusEvent(call_id=run_id, module="arena", kind="arena.summary",
                              payload={"mode": mode, "seed": seed, "loops": loops,
                                       "live_attacker_turns": live_turns, "live_coach": coach_engaged,
+                                      "defender": defender, "defender_llm_turns": defender_turns,
                                       **_aggregate(scorecards)}))
     finally:
         detach()
@@ -769,7 +846,8 @@ def run_arena(*, mode: str = "cash", loops: int = 5, seed: int = 7,
                     next_genome=next_genome, next_genome_path=next_path, genome_diff=diff,
                     scenarios=scenarios, matches=matches, scorecards=scorecards,
                     live_attacker_turns=live_turns, live_coach=coach_engaged,
-                    coach_requested_live=coach_requested_live)
+                    coach_requested_live=coach_requested_live, defender=defender,
+                    defender_llm_turns=defender_turns)
 
 
 # --------------------------------------------------------------------------- #
@@ -798,6 +876,11 @@ def render(run: ArenaRun) -> None:
         total_turns = sum(len(match.turns) for match in run.matches)
         warn = "" if run.live_attacker_turns else "  ⚠ SCRIPTED FALLBACK (openai package / API keys?)"
         print(f"\n  live engagement: attacker {run.live_attacker_turns}/{total_turns} turns via LLM{warn}")
+    if run.defender == "live":
+        total_turns = sum(len(match.turns) for match in run.matches)
+        warn = "" if run.defender_llm_turns else "  ⚠ OFFLINE FALLBACK (openai package / API keys?)"
+        lead = "" if run.live else "\n"
+        print(f"{lead}  defender engagement: {run.defender_llm_turns}/{total_turns} drafts via LLM{warn}")
     coach = ("live sol coach" if run.live_coach
              else "offline deterministic coach (live coach fell back)" if run.coach_requested_live
              else "offline deterministic coach")
@@ -811,7 +894,8 @@ def render(run: ArenaRun) -> None:
 def train(*, mode: str = "cash", generations: int = 1, loops: int = 5, seed: int = 7,
           attacker_profile: str = "clean", genome_path: str | Path | None = None,
           live: bool = False, live_coach: bool = False, attacker_model: str = "gpt-4.1-mini",
-          out_root: str | Path | None = None, run_id_prefix: str = "train") -> list[ArenaRun]:
+          out_root: str | Path | None = None, run_id_prefix: str = "train",
+          defender: str = "offline") -> list[ArenaRun]:
     """Chain ``generations`` coach cycles: generation ``g`` trains on seed ``seed + g``
     (fresh, still-deterministic scenarios each generation) starting from ``genome_path`` and
     evolving forward through each run's ``next_genome_path``. Returns every ``ArenaRun``."""
@@ -821,7 +905,7 @@ def train(*, mode: str = "cash", generations: int = 1, loops: int = 5, seed: int
         run = run_arena(mode=mode, loops=loops, seed=seed + g, genome_path=current_path,
                         run_id=f"{run_id_prefix}-g{g:02d}", attacker_profile=attacker_profile,
                         live=live, live_coach=live_coach, attacker_model=attacker_model,
-                        out_root=out_root)
+                        out_root=out_root, defender=defender)
         runs.append(run)
         current_path = run.next_genome_path
     return runs
@@ -871,24 +955,29 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out-root", default=None, help="run directory root (default: runs/arena)")
     parser.add_argument("--run-id", default=None,
                         help="override the generated run id (acts as the prefix in --generations mode)")
+    parser.add_argument("--defender", choices=("offline", "live"), default="offline",
+                        help="offline = Talker uses OfflineTalkerAdapter (default); live = the genome's "
+                             "talker_prompt gene wakes via a real gpt-4.1-mini call, still gated as always "
+                             "(needs API keys; falls back per-turn on any failure)")
     args = parser.parse_args(argv)
     if args.loops < 1:
         parser.error("--loops must be >= 1")
     if args.generations < 1:
         parser.error("--generations must be >= 1")
-    if args.live or args.live_coach:
+    if args.live or args.live_coach or args.defender == "live":
         _load_dotenv()
     if args.generations == 1:
         run = run_arena(mode=args.mode, loops=args.loops, seed=args.seed, genome_path=args.genome,
                         live=args.live, live_coach=args.live_coach, attacker_model=args.attacker_model,
-                        attacker_profile=args.attacker_profile, out_root=args.out_root, run_id=args.run_id)
+                        attacker_profile=args.attacker_profile, out_root=args.out_root, run_id=args.run_id,
+                        defender=args.defender)
         render(run)
     else:
         prefix = args.run_id or f"{args.mode}-s{args.seed}-train"
         runs = train(mode=args.mode, generations=args.generations, loops=args.loops, seed=args.seed,
                     attacker_profile=args.attacker_profile, genome_path=args.genome, live=args.live,
                     live_coach=args.live_coach, attacker_model=args.attacker_model,
-                    out_root=args.out_root, run_id_prefix=prefix)
+                    out_root=args.out_root, run_id_prefix=prefix, defender=args.defender)
         render_train(runs)
     return 0
 

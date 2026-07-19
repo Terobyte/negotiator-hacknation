@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from negotiator.core.contracts import NegotiationPhase, SourceType
+from negotiator.call.talker import OfflineTalkerAdapter
+from negotiator.core.contracts import CallCard, NegotiationPhase, SourceType
 from negotiator.tools.arena import (
     CLEAN_FLEX_MAX_PCT,
     DIRTY_FLEX_MIN_PCT,
@@ -14,6 +16,7 @@ from negotiator.tools.arena import (
     FEES_SURFACED_BONUS,
     SEED_GENOME_PATH,
     VERTICAL_PATH,
+    GenomeTalkerAdapter,
     MatchResult,
     Scenario,
     ScriptedAttacker,
@@ -25,6 +28,7 @@ from negotiator.tools.arena import (
     load_genome,
     main,
     merge_overlay,
+    render,
     run_arena,
     train,
     validate_genome,
@@ -338,3 +342,103 @@ def test_cli_generations_output_is_byte_identical_across_runs(tmp_path, capsys):
     assert main(args) == 0
     second = capsys.readouterr().out
     assert first == second
+
+
+# --------------------------------------------------------------------------- #
+# Live defender — GenomeTalkerAdapter (loop 3). The genome's talker_prompt gene
+# only wakes with --defender live; every draft still travels through the real
+# HonestyGate, so a hallucinated number becomes a stall, never speech.
+# --------------------------------------------------------------------------- #
+def _fake_client(reply):
+    """SimpleNamespace fake mirroring the coach/attacker fakes: reply is either the
+    assistant text to return, or an Exception instance to raise from create()."""
+    def create(**kwargs):
+        if isinstance(reply, Exception):
+            raise reply
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply))])
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+
+def _capturing_client(reply, captured):
+    def create(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=reply))])
+    return SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+
+def _card(**overrides):
+    base = dict(version=1, phase=NegotiationPhase.OPENING, phase_goal="g", next_move="m",
+                allowed_fact_ids=(), tone_preset="warm")
+    base.update(overrides)
+    return CallCard(**base)
+
+
+def test_genome_talker_adapter_prompt_carries_the_talker_prompt_gene():
+    captured: dict = {}
+    client = _capturing_client("Sure, happy to walk through that.", captured)
+    adapter = GenomeTalkerAdapter(talker_prompt="OBEY THE GENOME", client=client)
+    text = adapter.generate(card=_card(), transcript_tail="hello there")
+    prompt = captured["messages"][0]["content"]
+    assert "OBEY THE GENOME" in prompt
+    assert "CALL CARD" in prompt
+    assert adapter.engaged == 1
+    assert text == "Sure, happy to walk through that."
+
+
+def test_genome_talker_adapter_failure_falls_back_to_offline_text():
+    adapter = GenomeTalkerAdapter(talker_prompt="OBEY THE GENOME", client=_fake_client(RuntimeError("api down")))
+    card = _card()
+    text = adapter.generate(card=card, transcript_tail="hello there")
+    assert text == OfflineTalkerAdapter().generate(card=card, transcript_tail="hello there")
+    assert adapter.engaged == 0
+
+
+def test_run_arena_defender_live_records_engagement_and_offline_stays_zero(tmp_path):
+    client = _fake_client("Understood, let's find something that works for both of us.")
+    live = run_arena(mode="cash", loops=2, seed=3, out_root=tmp_path / "live", run_id="live",
+                     defender="live", defender_client=client)
+    assert live.defender == "live"
+    assert live.defender_llm_turns == 2 * 6  # 6 FSM phases per match
+    expected_keys = {"mode", "persona", "scenario", "deal_closed", "opening_total", "final_total",
+                     "concession", "gate_blocks", "leaks", "fees_surfaced", "winner", "score", "profile"}
+    assert set(live.scorecards[0]) == expected_keys
+    offline = run_arena(mode="cash", loops=2, seed=3, out_root=tmp_path / "off", run_id="off")
+    assert offline.defender == "offline"
+    assert offline.defender_llm_turns == 0
+
+
+def test_defender_live_ungrounded_number_is_gate_blocked_end_to_end(tmp_path):
+    # A number with NO backing LedgerFact must be blocked -- the honesty gate holds even
+    # when the draft comes from a real (faked) LLM call, not just the offline adapter.
+    client = _fake_client("We can settle at $9,999 right now.")
+    run = run_arena(mode="principled", loops=1, seed=7, out_root=tmp_path, run_id="blk",
+                    defender="live", defender_client=client)
+    match = run.matches[0]
+    assert match.gate_blocks >= 1
+    assert match.spoken_unapproved == 0
+    assert all("9,999" not in turn.defender for turn in match.turns)
+    assert run.scorecards[0]["mode"] == "principled"  # completed with a valid scorecard, no crash
+
+
+def test_render_defender_live_dead_client_confesses_offline_fallback(tmp_path, capsys):
+    run = run_arena(mode="cash", loops=1, seed=3, out_root=tmp_path, run_id="dead",
+                    defender="live", defender_client=_fake_client(RuntimeError("no api")))
+    render(run)
+    out = capsys.readouterr().out
+    assert "defender engagement: 0/" in out
+    assert "OFFLINE FALLBACK" in out
+
+
+def test_render_defender_live_engaged_prints_no_fallback_warning(tmp_path, capsys):
+    client = _fake_client("Understood, let's find something that works for both of us.")
+    run = run_arena(mode="cash", loops=1, seed=3, out_root=tmp_path, run_id="engaged",
+                    defender="live", defender_client=client)
+    render(run)
+    out = capsys.readouterr().out
+    assert "drafts via LLM" in out
+    assert "OFFLINE FALLBACK" not in out
+
+
+def test_run_arena_rejects_unknown_defender():
+    with pytest.raises(ValueError):
+        run_arena(mode="cash", loops=1, defender="voice")

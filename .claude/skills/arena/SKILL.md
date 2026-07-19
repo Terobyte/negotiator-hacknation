@@ -20,6 +20,10 @@ Map the user's request to the CLI:
 - **"обучи N поколений"** → `--generations N` (chains N coach cycles, seed advances each
   generation, prints a cumulative genome diff); add `--live-coach` when the user asks for real
   sol training (real gpt-5.6-sol coach over a scripted deterministic attacker).
+- **"живой защитник" / "настоящий защитник" / "--defender live"** → `--defender live` (the
+  genome's `talker_prompt` gene wakes: each defender draft comes from a real gpt-4.1-mini call
+  instead of the offline template, still gated as always). Only wire this in when the user
+  explicitly asks for a live defender; default stays `--defender offline`.
 
 Run it (offline by default — zero env keys needed, fully deterministic):
 
@@ -50,3 +54,10 @@ Rules:
   — use that when the user wants to bench one attacker model/profile against another.
 - `--attacker-profile` never touches the defender: the honesty gate is unbypassable
   regardless of how dirty the attacker plays.
+- `talker_prompt` is a dormant gene offline (only the 3 tactic knobs are live without
+  `--defender live`) — it only shapes anything once the defender is live. With `--defender
+  live`, watch the `blk` (gate blocks) column: this is where the gate-block path becomes
+  visible end-to-end — a live draft with an unbacked number gets blocked and a stall is
+  spoken instead, never the hallucinated line. The render output also prints a
+  `defender engagement: N/M drafts via LLM` line, with an honest `⚠ OFFLINE FALLBACK` warning
+  if the live call never actually engaged (missing keys, network, etc.).
