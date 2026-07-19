@@ -1,0 +1,19 @@
+# Seed defender genome — generation 0. Loaded as a runtime-only overlay merged over the
+# vertical config (negotiator/config/verticals/*.yaml); the canon vertical file is never
+# written. The arena coach mutates copies of this into runs/arena/<run_id>/genome_gen{k+1}.yaml.
+generation: 0
+voss_phrases:
+  - "It sounds like predictability matters here."
+  - "It seems there may be more detail behind that number."
+  - "How am I supposed to make that work?"
+  - "What would it take to make this workable today?"
+stall_phrases:
+  - "One moment while I check my notes."
+  - "Give me a second to verify that."
+tactics:
+  cite_competitor_at_phase: LEVERAGE
+  press_hidden_fees: true
+  anchor_discount_pct: 5
+talker_prompt: >-
+  Write one concise negotiation utterance. Treat the CALL CARD as the complete and only
+  authority. Never invent facts, prices, quotes, budgets, floors, or private terms.

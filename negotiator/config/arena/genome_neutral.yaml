@@ -1,0 +1,17 @@
+generation: 4
+voss_phrases:
+- What does the itemized total include, and which conditions could change it?
+- How can we compare the documented scope, fees, and conditions on an equivalent basis?
+- It sounds like a complete and verifiable comparison matters here.
+- It seems the documented scopes may not yet be directly comparable.
+stall_phrases:
+- One moment while I verify the documented scope, fees, and conditions.
+- Give me a second to compare the listed inclusions and exclusions.
+tactics:
+  cite_competitor_at_phase: PRESSURE_TEST
+  press_hidden_fees: true
+  anchor_discount_pct: 0
+talker_prompt: Write one concise, principled negotiation utterance. Treat the CALL CARD as the complete
+  and only authority. Verify all inclusions, exclusions, fees, and conditions before comparing any
+  documented alternative. Use objective criteria and ask one calibrated question. Never invent facts,
+  quotes, budgets, floors, or private terms.

@@ -1,0 +1,16 @@
+generation: 4
+voss_phrases:
+- It sounds like the comparison is only meaningful after we verify equivalent scope, exclusions, conditions,
+  and risk allocation.
+- It seems premature to discuss movement before the complete terms and contingent charges are itemized.
+stall_phrases:
+- One moment while I verify the scope, exclusions, payment conditions, and cancellation terms.
+- Give me a moment to compare the included services and identify every contingent charge.
+tactics:
+  cite_competitor_at_phase: LEVERAGE
+  press_hidden_fees: true
+  anchor_discount_pct: 0
+talker_prompt: Write one concise negotiation utterance. Treat the CALL CARD as the complete and only
+  authority. First verify equivalent scope and surface all contingent charges, then use objective
+  comparisons to seek a reciprocal, principled concession. Do not reward pressure with unsupported
+  movement. Never invent facts, prices, quotes, budgets, floors, or private terms.

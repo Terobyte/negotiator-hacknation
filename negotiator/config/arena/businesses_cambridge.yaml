@@ -1,0 +1,213 @@
+# Cambridge, MA moving-company dataset — compiled from public listings on 2026-07-19.
+# Schema mirrors negotiator/product/discovery.py Business (name/phone/category/address) + extras.
+# NOTE: arena personas' BEHAVIOR is synthetic. Real names supply scenario variety only and must
+# never be publicly attributed to simulated dirty conduct (demo/video policy).
+#
+# Verification notes:
+# - rating/review_count/usdot are null when not confirmed from a public source; never invented.
+# - Each entry cites one source_url as the primary place its fields were verified; USDOT numbers
+#   were cross-checked against FMCSA SAFER (safer.fmcsa.dot.gov) where available.
+# - Excluded: "Michael's Moving & Storage" (76 Ashford St, Allston, MA — BBB-listed) — the only
+#   phone number found for it, (949) 860-9778, is an Orange County, CA area code with no
+#   corroborating local number, so the contact data could not be trusted as genuinely local.
+city: "Cambridge, MA"
+compiled: "2026-07-19"
+source: "public web listings (Google/Yelp/BBB/FMCSA/company sites)"
+businesses:
+  - name: "Gentle Giant Moving & Storage"
+    phone: "(617) 661-3333"
+    category: moving_company
+    address: "8 Bunker Hill Industrial Park, Boston, MA 02129"
+    rating: 4.1
+    review_count: 497
+    usdot: 373544
+    source_url: "https://www.movebuddha.com/movers/ma/gentle-giant-moving-company-974/"
+
+  - name: "Stairhopper Movers"
+    phone: "(857) 928-0876"
+    category: moving_company
+    address: "20 Harvard St, Boston, MA 02129"
+    rating: 4.8
+    review_count: 668
+    usdot: null
+    source_url: "https://www.yelp.com/biz/stairhopper-movers-boston"
+
+  - name: "Nick's Moving Company"
+    phone: "(617) 491-7700"
+    category: moving_company
+    address: "129 Mt Auburn St, Cambridge, MA 02138"
+    rating: 2.7
+    review_count: 139
+    usdot: null
+    source_url: "https://www.yelp.com/biz/nicks-moving-company-cambridge-2"
+
+  - name: "Centaur Moving"
+    phone: "(617) 651-3434"
+    category: moving_company
+    address: "171 Windsor St, Cambridge, MA 02139"
+    rating: 5.0
+    review_count: 33
+    usdot: 3638077
+    source_url: "https://www.yelp.com/biz/centaur-moving-cambridge-7"
+
+  - name: "Boston Best Rate Movers"
+    phone: "(617) 787-3528"
+    category: moving_company
+    address: "26 Lincoln St, Boston, MA 02135"
+    rating: 4.7
+    review_count: 248
+    usdot: 1718049
+    source_url: "https://www.movebuddha.com/movers/ma/boston-best-rate-movers-976/"
+
+  - name: "Esquire Moving & Storage"
+    phone: "(617) 952-1505"
+    category: moving_company
+    address: "23 Aberdeen St, Boston, MA 02115"
+    rating: null
+    review_count: 295
+    usdot: 2820253
+    source_url: "https://www.yelp.com/biz/esquire-moving-and-storage-boston-3"
+
+  - name: "Fabio Moving Services"
+    phone: "(617) 389-1119"
+    category: moving_company
+    address: "24 Harley Ave, Everett, MA 02149"
+    rating: null
+    review_count: 101
+    usdot: 3021941
+    source_url: "https://www.yelp.com/biz/fabio-moving-services-everett-4"
+
+  - name: "Marathon Moving Co."
+    phone: "(781) 300-3200"
+    category: moving_company
+    address: "146 Will Dr, Canton, MA 02021"
+    rating: 4.1
+    review_count: 287
+    usdot: null
+    source_url: "https://www.movebuddha.com/movers/ma/marathon-moving-co-1356/"
+
+  - name: "Safe Responsible Movers"
+    phone: "(617) 606-9098"
+    category: moving_company
+    address: "24 Denby Rd Ste 28, Boston, MA 02134"
+    rating: 5.0
+    review_count: 299
+    usdot: null
+    source_url: "https://www.yelp.com/biz/safe-responsible-movers-boston-6"
+
+  - name: "Precision Moving Company"
+    phone: "(617) 623-7700"
+    category: moving_company
+    address: "40 Joy St, Somerville, MA 02143"
+    rating: 4.8
+    review_count: null
+    usdot: 1456970
+    source_url: "https://www.yelp.com/biz/precision-moving-company-somerville"
+
+  - name: "Mozart Moving Company"
+    phone: "(617) 390-4600"
+    category: moving_company
+    address: "1500 Washington St, Boston, MA"
+    rating: 4.8
+    review_count: 187
+    usdot: null
+    source_url: "https://www.yelp.com/biz/mozart-moving-boston-5"
+
+  - name: "Exela Movers"
+    phone: "(857) 312-3381"
+    category: moving_company
+    address: "867-871 Boylston St Fl 5, Boston, MA 02116"
+    rating: 4.8
+    review_count: 172
+    usdot: 2588687
+    source_url: "https://www.yelp.com/biz/exela-movers-boston-2"
+
+  - name: "Horizon Boston Movers, Inc"
+    phone: "(617) 991-7677"
+    category: moving_company
+    address: "127 Smith Pl, Cambridge, MA 02138"
+    rating: 4.9
+    review_count: 108
+    usdot: 3369438
+    source_url: "https://www.greatguysmove.com/companies/massachusetts/boston/horizon-boston-movers-movers-boston/"
+
+  - name: "Smart Penny Moving"
+    phone: "(857) 504-4232"
+    category: moving_company
+    address: "127 Smith Pl, Cambridge, MA 02138"
+    rating: null
+    review_count: 24
+    usdot: 2891447
+    source_url: "https://www.yelp.com/biz/smart-penny-moving-cambridge-2"
+
+  - name: "Your Move, Inc."
+    phone: "(617) 623-8545"
+    category: moving_company
+    address: "19 Adrian St, Somerville, MA 02143"
+    rating: null
+    review_count: 17
+    usdot: null
+    source_url: "https://www.yelp.com/biz/your-move-somerville-3"
+
+  - name: "Focus Moving Services"
+    phone: "(857) 316-5058"
+    category: moving_company
+    address: "4 Langmaid Ave, Somerville, MA 02145"
+    rating: null
+    review_count: null
+    usdot: 2882408
+    source_url: "https://www.bbb.org/us/ma/somerville/profile/moving-companies/focus-moving-services-0021-188326"
+
+  - name: "On It Movers"
+    phone: "(857) 557-8844"
+    category: moving_company
+    address: "1660 Soldiers Field Rd Ste 7-1106, Brighton, MA 02135"
+    rating: null
+    review_count: null
+    usdot: 4025044
+    source_url: "https://www.bbb.org/us/ma/brighton/profile/moving-services/on-it-movers-0021-556445"
+
+  - name: "Lexel Moving, LLC"
+    phone: "(855) 605-7755"
+    category: moving_company
+    address: "129 Newbury St Fl 2, Boston, MA 02116"
+    rating: 4.5
+    review_count: 398
+    usdot: 2570768
+    source_url: "https://www.movebuddha.com/movers/ma/lexel-moving-and-storage-1902/"
+
+  - name: "TLC Moving"
+    phone: "(617) 284-6040"
+    category: moving_company
+    address: "PO Box 290299, Charlestown, MA 02129"
+    rating: null
+    review_count: null
+    usdot: null
+    source_url: "https://www.bbb.org/us/ma/cambridge/category/moving-companies/accredited"
+
+  - name: "Man With A Van Moving"
+    phone: "(617) 827-8955"
+    category: moving_company
+    address: "Allston, MA 02134"
+    rating: null
+    review_count: 19
+    usdot: null
+    source_url: "https://www.yelp.com/biz/man-with-a-van-moving-allston-2"
+
+  - name: "Two Men and a Truck (Boston)"
+    phone: "(877) 720-0411"
+    category: moving_company
+    address: ""
+    rating: null
+    review_count: null
+    usdot: null
+    source_url: "https://twomenandatruck.com/movers/ma/boston"
+
+  - name: "College Hunks Hauling Junk & Moving"
+    phone: "(833) 626-1326"
+    category: moving_company
+    address: ""
+    rating: null
+    review_count: null
+    usdot: null
+    source_url: "https://www.collegehunkshaulingjunk.com/locations/moving/massachusetts/"

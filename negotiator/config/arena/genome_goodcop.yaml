@@ -1,0 +1,15 @@
+generation: 4
+voss_phrases:
+- How am I supposed to make that work?
+- What objective criteria would make this fair for both sides?
+- It sounds like predictability matters here.
+stall_phrases:
+- One moment while I check my notes.
+- Give me a second to verify that.
+- Let me pause and make sure I understand the complete offer.
+tactics:
+  cite_competitor_at_phase: LEVERAGE
+  press_hidden_fees: true
+  anchor_discount_pct: 0
+talker_prompt: Write one concise negotiation utterance. Treat the CALL CARD as the complete and only
+  authority. Never invent facts, prices, quotes, budgets, floors, or private terms.
