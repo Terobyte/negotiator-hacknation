@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>The Negotiator — pitch</title>
+<style>
+  /* ---- deck chrome ---------------------------------------------------- */
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; background: #07090c; overflow: hidden; }
+  body { font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; color: #e8eaed; }
+  #stage {
+    position: absolute; top: 50%; left: 50%;
+    width: 1920px; height: 1080px;
+    transform-origin: center center;
+  }
+  .slide {
+    position: absolute; inset: 0; padding: 120px 140px;
+    display: none; flex-direction: column; justify-content: center;
+    background:
+      radial-gradient(1200px 600px at 85% -10%, rgba(255,235,0,.06), transparent 60%),
+      #0a0e12;
+  }
+  .slide.active { display: flex; animation: fadein .35s ease; }
+  @keyframes fadein { from { opacity: 0 } to { opacity: 1 } }
+
+  /* ---- typography ------------------------------------------------------ */
+  .kicker {
+    font-family: "Arial Black", Arial, sans-serif;
+    font-size: 30px; letter-spacing: .35em; text-transform: uppercase;
+    color: #ffeb00; margin-bottom: 36px;
+  }
+  h1 {
+    font-family: "Arial Black", Arial, sans-serif;
+    font-size: 150px; line-height: .95; letter-spacing: -.01em;
+    text-transform: uppercase;
+  }
+  h2 {
+    font-family: "Arial Black", Arial, sans-serif;
+    font-size: 84px; line-height: 1.02; margin-bottom: 56px;
+  }
+  h2 .y { color: #ffeb00; }
+  .sub { font-size: 44px; color: #aab2bd; margin-top: 40px; max-width: 1400px; line-height: 1.35; }
+  .byline { font-size: 34px; color: #6b7480; margin-top: 90px; letter-spacing: .04em; }
+  .byline b { color: #e8eaed; font-weight: 700; }
+
+  ul.big { list-style: none; font-size: 46px; line-height: 1.4; }
+  ul.big li { margin-bottom: 38px; padding-left: 64px; position: relative; }
+  ul.big li::before {
+    content: ""; position: absolute; left: 0; top: 24px;
+    width: 26px; height: 26px; background: #ffeb00;
+  }
+  ul.big b { color: #ffeb00; font-weight: 800; }
+  ul.big .strike { color: #ff5d5d; }
+
+  /* ---- pipeline diagram (slide 3) -------------------------------------- */
+  .pipe { display: flex; align-items: stretch; gap: 0; margin: 30px 0 70px; }
+  .pipe .box {
+    flex: 1; border: 4px solid #2a3340; padding: 40px 30px; text-align: center;
+    font-family: "Arial Black", Arial, sans-serif; font-size: 40px; line-height: 1.15;
+    background: #0e141b;
+  }
+  .pipe .box small { display: block; font-family: Helvetica, Arial, sans-serif;
+    font-size: 26px; font-weight: 400; color: #8a93a0; margin-top: 16px; text-transform: none; }
+  .pipe .box.hot { border-color: #ffeb00; color: #ffeb00; }
+  .pipe .arr { display: flex; align-items: center; padding: 0 22px;
+    font-size: 60px; color: #ffeb00; font-family: "Arial Black", Arial, sans-serif; }
+
+  /* ---- code (slide 4) --------------------------------------------------- */
+  pre.code {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 27px; line-height: 1.45; flex-shrink: 0;
+    background: #0e141b; border: 4px solid #2a3340; border-left: 14px solid #ffeb00;
+    padding: 34px 46px; margin: 0 0 46px; white-space: pre; overflow: hidden;
+  }
+  .slide.codeslide h2 { font-size: 72px; margin-bottom: 42px; }
+  .slide.codeslide ul.big { font-size: 40px; }
+  .slide.codeslide ul.big li { margin-bottom: 26px; }
+  .slide.codeslide ul.big li::before { top: 20px; }
+  pre.code .kw { color: #ff7ab2; } pre.code .str { color: #9ece6a; }
+  pre.code .cm { color: #5c6773; } pre.code .fn { color: #7aa2f7; }
+  pre.code .hl { color: #ffeb00; font-weight: 700; }
+
+  /* ---- results table (slide 5) ------------------------------------------ */
+  .res { width: 100%; border-collapse: collapse; font-size: 29px; }
+  .res th, .res td { padding: 11px 20px; text-align: right; border-top: 3px solid #1c242e; }
+  .res th { font-family: "Arial Black", Arial, sans-serif; font-size: 22px; color: #8a93a0;
+    text-transform: uppercase; letter-spacing: .05em; border-top: none; }
+  .res td:first-child, .res th:first-child { text-align: left; }
+  .res tr.hi td { color: #ffeb00; font-weight: 700; background: rgba(255,235,0,.06); }
+  .res .sum { font-family: "Arial Black", Arial, sans-serif; }
+  .rescap { font-size: 22px; color: #6b7480; margin-top: 10px; }
+  .foot { font-size: 27px; color: #6b7480; margin-top: 36px; letter-spacing: .01em; }
+
+  /* ---- stance machine strip (slide 5) ----------------------------------- */
+  .archslide h2 { font-size: 64px; margin-bottom: 34px; }
+  .stances { display: flex; align-items: stretch; margin: 0 0 44px; }
+  .sbox { flex: 1; border: 4px solid #2a3340; background: #0e141b; padding: 24px 18px;
+    text-align: center; font-family: "Arial Black", Arial, sans-serif; font-size: 34px; }
+  .sbox small { display: block; font-family: Helvetica, Arial, sans-serif; font-weight: 400;
+    font-size: 22px; color: #8a93a0; margin-top: 10px; line-height: 1.3; }
+  .sbox.good { border-color: #9ece6a; color: #9ece6a; }
+  .sbox.bad  { border-color: #ff5d5d; color: #ff5d5d; }
+  .sarr { display: flex; flex-direction: column; justify-content: center; padding: 0 20px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 22px; color: #ffeb00;
+    text-align: center; line-height: 1.5; }
+  /* ---- hud -------------------------------------------------------------- */
+  #hud { position: fixed; bottom: 26px; right: 34px; font-family: Menlo, monospace;
+    font-size: 15px; color: #3a4552; z-index: 9; user-select: none; }
+</style>
+</head>
+<body>
+<div id="stage">
+
+  <!-- 1 ▸ TITLE -->
+  <section class="slide active">
+    <div class="kicker">Hack-Nation 6 · ElevenLabs Challenge</div>
+    <h1>The<br><span style="color:#ffeb00">Negotiator</span></h1>
+    <p class="sub">It calls the movers and haggles for you.
+      And it <b style="color:#e8eaed">can’t lie — the type system won’t let it.</b></p>
+    <p class="byline"><b>Temirlan</b> — solo dev · Boston</p>
+  </section>
+
+  <!-- 2 ▸ PROBLEM -->
+  <section class="slide">
+    <div class="kicker">The problem</div>
+    <h2>You negotiate twice a decade.<br>They negotiate <span class="y">fifty times a day.</span></h2>
+    <ul class="big">
+      <li>Same two-bedroom, same route: one company says <b>$2,000</b>, another says <b>$6,400</b></li>
+      <li>The cheap quote isn’t real — it <span class="strike">grows on delivery day</span>, when your stuff is already on their truck</li>
+      <li>“The truck is already in your area.” It isn’t. “This price expires today.” It doesn’t.</li>
+      <li>You call one company at a time. They know you won’t call back.</li>
+    </ul>
+  </section>
+
+  <!-- 3 ▸ THE SYSTEM -->
+  <section class="slide">
+    <div class="kicker">The system</div>
+    <h2>Now one of them is <span class="y">on your side</span></h2>
+    <div class="pipe">
+      <div class="box">Intake<small>your inventory, dates, that old PDF quote</small></div>
+      <div class="arr">›</div>
+      <div class="box">Calls the market<small>3 companies at once, ElevenLabs voice</small></div>
+      <div class="arr">›</div>
+      <div class="box hot">Negotiates<small>quotes A’s price to B — captured quotes only</small></div>
+      <div class="arr">›</div>
+      <div class="box">Cited report<small>every line links to the recording</small></div>
+    </div>
+    <ul class="big">
+      <li>It argues only with <b>facts it heard on a call</b> — company A’s quote becomes ammunition against company B. Nothing invented, nothing “estimated”</li>
+      <li>The other side’s talk never becomes a fact: a blurted “$1” has no way into the ledger — so it has no way out</li>
+    </ul>
+  </section>
+
+  <!-- 4 ▸ HONESTY GATE -->
+  <section class="slide codeslide">
+    <div class="kicker">The part that matters</div>
+    <h2>Honesty is a <span class="y">type</span>, not a prompt</h2>
+    <pre class="code"><span class="cm"># negotiator/core/contracts/models.py — real code</span>
+_GATE_CAPABILITY = <span class="fn">object</span>()
+
+<span class="kw">class</span> <span class="hl">ApprovedUtterance</span>(Contract):
+    <span class="cm">"""A gate-issued capability, not a data container."""</span>
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, **data):
+        <span class="kw">if</span> data.pop(<span class="str">"_gate_capability"</span>, <span class="kw">None</span>) <span class="kw">is not</span> _GATE_CAPABILITY:
+            <span class="kw">raise</span> <span class="fn">TypeError</span>(<span class="str">"ApprovedUtterance can only be issued by the honesty gate"</span>)</pre>
+    <ul class="big">
+      <li>The speech engine takes <b>exactly one input type</b> — and only the gate can construct it. There is no second path to the speaker</li>
+      <li>Invented number → <b>BLOCK</b> · your budget about to slip out → <b>BLOCK</b> · a block is never dead air — it stalls like a human and redraws</li>
+    </ul>
+  </section>
+
+  <!-- 5 ▸ BRAIN: STANCE MACHINE + SELF-PLAY -->
+  <section class="slide codeslide archslide">
+    <div class="kicker">Inside the brain</div>
+    <h2>Good cop, bad cop — <span class="y">it switches mid-call</span></h2>
+    <div class="stances">
+      <div class="sbox good">GOOD COP<small>collaborative: itemizes, trades concessions</small></div>
+      <div class="sarr">‹ trust − suspicion ≥ 25<br>after 2-turn dwell</div>
+      <div class="sbox">NEUTRAL<small>opening stance, probing</small></div>
+      <div class="sarr">suspicion ≥ 60 ›<br>absorbing, no way back</div>
+      <div class="sbox bad">BAD COP<small>hard anchors, cites the competitor, walks</small></div>
+    </div>
+    <ul class="big">
+      <li>Every opponent move is scored: injection <b>+40 suspicion</b>, red-flag fee +35, concession +10 trust. Suspicion only grows — bad cop is absorbing, oscillation <b>arithmetically impossible</b></li>
+      <li>Each stance is a genome trained in the arena — <b>338 matches, 8 generations</b>, an LLM coach. The gate blocked <b>82 dishonest drafts</b> along the way; zero got through</li>
+    </ul>
+    <table class="res">
+      <tr><th>defender</th><th>vs clean</th><th>vs dirty</th><th>vs turncoat</th><th>Σ</th></tr>
+      <tr><td>generation 0 — untrained</td><td>5002</td><td>2640</td><td>3840</td><td class="sum">11482</td></tr>
+      <tr><td>bad cop — trained, always hard</td><td>4710</td><td>3802</td><td>3802</td><td class="sum">12314</td></tr>
+      <tr class="hi"><td>adaptive — switches stances</td><td>5002</td><td>3660</td><td>3510</td><td class="sum">12172</td></tr>
+    </table>
+    <p class="rescap">score = Σ savings over 6 seeded matches, principled mode, seed 101 — identical scenarios for every row. Always-hard wins more total but burns honest sellers; adaptive keeps clean at max and takes +39% vs dirty.</p>
+  </section>
+
+  <!-- 6 ▸ CALL-READY -->
+  <section class="slide codeslide">
+    <div class="kicker">The hot path</div>
+    <h2>Ready for a <span class="y">real phone line</span></h2>
+    <ul class="big">
+      <li><b>Barge-in arbiter:</b> the human always wins the mic — the agent cuts itself off mid-word, deterministically. It can also hold a <b>tactical pause</b>: silence as a negotiation move</li>
+      <li><b>Latency is measured, not promised:</b> per-hop mouth-to-ear report straight from the call journal — ≤ 800 ms simulated, ≈ 1.1 s over Twilio PSTN. No sub-500 ms fairy tales</li>
+      <li><b>Three transports, one interface:</b> Twilio PSTN · WebRTC · ElevenLabs WS, behind a degradation ladder — live → sim → TTS cache → recording. The demo cannot die</li>
+    </ul>
+    <p class="foot">273 offline tests · any module replays alone from the call journal · 1 YAML = a new vertical · next: every real call feeds the arena</p>
+  </section>
+
+</div>
+<div id="hud">← → navigate · F fullscreen</div>
+
+<script>
+const slides = [...document.querySelectorAll(".slide")];
+let cur = 0;
+function show(i) {
+  cur = Math.max(0, Math.min(slides.length - 1, i));
+  slides.forEach((s, k) => s.classList.toggle("active", k === cur));
+}
+addEventListener("keydown", e => {
+  document.getElementById("hud").style.display = "none";
+  if (["ArrowRight", " ", "PageDown"].includes(e.key)) show(cur + 1);
+  else if (["ArrowLeft", "PageUp"].includes(e.key)) show(cur - 1);
+  else if (e.key.toLowerCase() === "f") document.documentElement.requestFullscreen();
+});
+addEventListener("click", () => show(cur + 1));
+
+function fit() {
+  const s = Math.min(innerWidth / 1920, innerHeight / 1080);
+  document.getElementById("stage").style.transform =
+    `translate(-50%, -50%) scale(${s})`;
+}
+addEventListener("resize", fit); fit();
+</script>
+</body>
+</html>
